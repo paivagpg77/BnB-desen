@@ -1,0 +1,12 @@
+﻿id_evidencia;projeto_id;tipo;arquivo;conteudo_esperado;status;observacao
+PRJ99-EV01;PRJ99;Dossiê;dossie_projeto.pdf;contexto, pergunta e recorte;Localizada;síntese
+PRJ99-EV05;PRJ99;Configuração;evidencias/configuracao.json;parâmetros, versões e ensaios;Localizada;especificação
+PRJ99-EV06;PRJ99;Método;evidencias/metodo.md;referência anterior, mecanismo e protocolo;Localizada;especificação
+PRJ99-EV07;PRJ99;Cronologia;evidencias/cronologia.csv;datas, versões e estado;Localizada;registro de versões
+PRJ99-EV08;PRJ99;Medições;evidencias/medicoes.csv;contadores, valores e histograma;Localizada;registro primário sintético
+PRJ99-EV09;PRJ99;Resultados;evidencias/resultados.csv;consolidação das medições;Localizada;derivado de EV08
+PRJ99-EV10;PRJ99;Entrevista;transcricao_entrevista_tecnica.pdf;depoimento de memória;Localizada;depoimento
+PRJ99-EV11;PRJ99;Observações;evidencias/observacoes.csv;recortes identificados;Localizada;recortes sintéticos
+PRJ99-EV12;PRJ99;Entradas;evidencias/entradas.csv;entradas ilustrativas;Localizada;recortes sintéticos
+PRJ99-EV13;PRJ99;Revisão técnica;evidencias/revisao_tecnica.md;alcance e lacunas;Localizada;revisão
+PRJ99-EV14;PRJ99;Atividades CSV;atividades.csv;registros de atividades;Localizada;formato aberto

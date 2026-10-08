@@ -1,0 +1,3 @@
+﻿id_atividade;ciclo;fase;natureza_informada_pela_equipe;descricao;resultado_ou_saida;evidencias_relacionadas;responsavel_por_funcao
+PRJ99-ATV01;C1;Caracterização do problema;Análise;Etiquetas de estoque eram lidas duas vezes pelo coletor.;Pergunta: como descartar a segunda leitura sem perder etiquetas novas?;PRJ99-EV01;Logística de Teste
+PRJ99-ATV02;C2;Registro de medições;Teste;"Arquivar leituras por versão e cenário; separar contadores de tempos.";Arquivo de medições por ensaio.;PRJ99-EV08 | PRJ99-EV09;Logística de Teste

@@ -17,9 +17,12 @@ Decisão de stack: `docs/adr/0001-stack.md`
 - [x] Verificador de citações: trecho existe, foi recuperado, literal confere e cobertura lexical
 - [x] Bloqueio de proposta sem citação ou com citação falha
 - [x] Dossiê em Markdown a partir de decisões confirmadas, com referências conferidas
-- [ ] Busca semântica (embeddings), aguardando escolha de modelo aprovado
-- [ ] Extração de PDF, aguardando biblioteca e PDFs reais
-- [ ] Motor de avaliação D1 a D5 e prompts dos critérios, aguardando textos normativos
+- [x] Carregador do pacote do desafio (CSV com BOM e ponto e vírgula, JSON, MD, PDF), com os identificadores e âncoras do próprio pacote
+- [x] Conferência de `resultados.csv` contra `medicoes.csv`, sem modelo de linguagem
+- [x] Resolução de referências (`PRJ21-EV08`, `PRJ21-S01`, `evidencias/metodo.md#2`): fonte que não existe bloqueia a proposta
+- [x] Cliente do OpenRouter atrás de uma interface, com o modelo como configuração
+- [ ] Motor de avaliação D1 a D5 e prompts dos critérios
+- [ ] Busca semântica (embeddings): sem prioridade, cada projeto cabe inteiro no contexto do modelo
 - [ ] Servidor MCP e API FastAPI
 - [ ] Interface React
 - [ ] Regressão contra a calibração PRJ01 a PRJ20, aguardando massa de dados
@@ -34,13 +37,37 @@ python3 -m venv .venv
 .venv/bin/pytest
 ```
 
+## Massa do hackathon e modelo de linguagem
+
+A massa é confidencial e **não entra no repositório**. Extraia o pacote em uma
+pasta fora dele e aponte a variável de ambiente:
+
+```bash
+export LEI_DO_BEM_PACOTE="/caminho/para/HACKATHON STS 2026-pacote_participantes_lei_do_bem_v10"
+.venv/bin/pytest tests/integracao   # sem a variável, estes testes são pulados
+```
+
+O modelo de linguagem é acessado pelo OpenRouter. A chave fica só no ambiente,
+nunca em arquivo versionado:
+
+```bash
+export OPENROUTER_API_KEY="..."
+export OPENROUTER_MODEL="nvidia/nemotron-3-super-120b-a12b:free"   # opcional; este é o padrão
+```
+
 ## Estrutura
 
 ```
 src/
   decisoes/maquina_estados.py   # estados, transicoes, dependencias, log
   schemas/discordancia.py       # discordancias, revisao cega, precedentes
-tests/unit/                     # testes da maquina de estados e das discordancias
+  pacote/                       # carregador do pacote do desafio e pareceres historicos
+  verificacao/recalculo.py      # resultados.csv conferido contra medicoes.csv
+  verificacao/referencias.py    # toda fonte citada precisa existir no projeto
+  verificacao/citacoes.py       # verificador lexical de citacoes
+  llm/cliente.py                # interface do modelo de linguagem e cliente OpenRouter
+tests/unit/                     # testes sem rede e sem a massa do hackathon
+tests/integracao/               # testes contra a massa (exigem LEI_DO_BEM_PACOTE)
 docs/                           # base, ADRs
 prompts/                        # prompts versionados (ainda vazio)
 dados/                          # normas, projetos ficticios, calibracao (ainda vazio)

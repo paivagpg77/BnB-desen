@@ -5,6 +5,7 @@ description = "Apoio a analise preliminar de elegibilidade a Lei do Bem (Hackath
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.5",
+    "pypdf>=4.0",
 ]
 
 [project.optional-dependencies]

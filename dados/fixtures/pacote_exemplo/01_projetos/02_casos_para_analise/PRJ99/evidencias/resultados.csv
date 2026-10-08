@@ -1,0 +1,6 @@
+ensaio_id;versao;metrica;operacao;valor;base_de_calculo;descricao_base;taxa_percentual;unidade;fonte;natureza
+PRJ99-S01;filtro-v1;leituras corretas;contagem;33;40;Leituras dos dois cenários.;82.5;casos;evidencias/medicoes.csv#PRJ99-S01;desempenho
+PRJ99-S02;filtro-v2;tempo de leitura;media;6;3;Três medições.;;ms;evidencias/medicoes.csv#PRJ99-S02;desempenho
+PRJ99-S03;filtro-v2;latência;percentil_95;120;20;Soma das frequências.;;ms;evidencias/medicoes.csv#PRJ99-S03;desempenho
+PRJ99-S04;filtro-v2;fichas entregues (contagem de entrega, não desempenho);contagem;7;7;Fichas disponibilizadas.;;casos;evidencias/medicoes.csv#PRJ99-S04;entrega
+PRJ99-S05;filtro-v2;indicador de estabilidade;indicador_precalculado;0.82;1;Indicador registrado.;;escala 0-1;evidencias/medicoes.csv#PRJ99-S05;desempenho
