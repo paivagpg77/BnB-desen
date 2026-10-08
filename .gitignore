@@ -7,3 +7,4 @@ dados/projetos/**/*.real.*
 saida/
 # Massa do hackathon: confidencial, nunca versionar.
 /pacote/
+*.egg-info/
