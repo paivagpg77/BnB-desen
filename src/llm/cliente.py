@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -26,6 +27,8 @@ VARIAVEL_MODELO = "OPENROUTER_MODEL"
 # Gratuito, para testes. Sujeito a limite diario de requisicoes.
 MODELO_PADRAO = "nvidia/nemotron-3-super-120b-a12b:free"
 TEMPO_LIMITE_S = 180
+TENTATIVAS_DE_CONEXAO = 3
+ESPERA_ENTRE_TENTATIVAS_S = 2.0
 
 # (url, cabecalhos, corpo) -> (status HTTP, corpo da resposta)
 Transporte = Callable[[str, dict[str, str], bytes], tuple[int, bytes]]
@@ -33,6 +36,10 @@ Transporte = Callable[[str, dict[str, str], bytes], tuple[int, bytes]]
 
 class ErroLLM(RuntimeError):
     pass
+
+
+class ErroDeConexao(ErroLLM):
+    """A rede caiu antes de a resposta chegar inteira; vale tentar de novo."""
 
 
 class LimiteDeUso(ErroLLM):
@@ -60,7 +67,10 @@ def _transporte_http(url: str, cabecalhos: dict[str, str], corpo: bytes) -> tupl
     except urllib.error.HTTPError as erro:
         return erro.code, erro.read()
     except urllib.error.URLError as erro:
-        raise ErroLLM(f"Falha de conexao com o provedor: {erro.reason}") from erro
+        raise ErroDeConexao(f"Falha de conexao com o provedor: {erro.reason}") from erro
+    except OSError as erro:
+        # Conexao derrubada ou tempo esgotado durante a leitura da resposta.
+        raise ErroDeConexao(f"Conexao com o provedor interrompida: {erro}") from erro
 
 
 class ClienteOpenRouter:
@@ -69,6 +79,7 @@ class ClienteOpenRouter:
         chave: Optional[str] = None,
         modelo: Optional[str] = None,
         transporte: Transporte = _transporte_http,
+        espera: float = ESPERA_ENTRE_TENTATIVAS_S,
     ):
         carregar_env()
         self._chave = chave or os.environ.get(VARIAVEL_CHAVE)
@@ -76,6 +87,17 @@ class ClienteOpenRouter:
             raise ErroLLM(f"Defina {VARIAVEL_CHAVE} no arquivo .env com a chave do OpenRouter.")
         self.modelo = modelo or os.environ.get(VARIAVEL_MODELO) or MODELO_PADRAO
         self._transporte = transporte
+        self._espera = espera
+
+    def _enviar(self, cabecalhos: dict[str, str], corpo: bytes) -> tuple[int, bytes]:
+        for tentativa in range(1, TENTATIVAS_DE_CONEXAO + 1):
+            try:
+                return self._transporte(URL_OPENROUTER, cabecalhos, corpo)
+            except ErroDeConexao:
+                if tentativa == TENTATIVAS_DE_CONEXAO:
+                    raise
+                time.sleep(self._espera * tentativa)
+        raise AssertionError("inalcancavel")
 
     def completar(
         self, sistema: str, usuario: str, esquema: Optional[dict] = None
@@ -93,8 +115,7 @@ class ClienteOpenRouter:
                 "json_schema": {"name": "resposta", "strict": True, "schema": esquema},
             }
 
-        status, bruto = self._transporte(
-            URL_OPENROUTER,
+        status, bruto = self._enviar(
             {
                 "Authorization": f"Bearer {self._chave}",
                 "Content-Type": "application/json",

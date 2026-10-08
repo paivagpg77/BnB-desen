@@ -5,6 +5,7 @@ import pytest
 from src.llm.cliente import (
     MODELO_PADRAO,
     ClienteOpenRouter,
+    ErroDeConexao,
     ErroLLM,
     LimiteDeUso,
 )
@@ -85,3 +86,30 @@ def test_respostas_invalidas_viram_erro_e_nunca_texto(status, corpo):
     cliente = ClienteOpenRouter(chave="k", transporte=_transporte_fixo(status, corpo))
     with pytest.raises(ErroLLM):
         cliente.completar("s", "u")
+
+
+def _transporte_instavel(falhas):
+    chamadas = {"n": 0}
+
+    def transporte(url, cabecalhos, dados):
+        chamadas["n"] += 1
+        if chamadas["n"] <= falhas:
+            raise ErroDeConexao("conexao interrompida")
+        return 200, json.dumps(RESPOSTA_OK).encode("utf-8")
+
+    return transporte, chamadas
+
+
+def test_queda_de_conexao_e_tentada_de_novo():
+    transporte, chamadas = _transporte_instavel(falhas=2)
+    cliente = ClienteOpenRouter(chave="k", transporte=transporte, espera=0)
+    assert cliente.completar("s", "u").texto == '{"ok": true}'
+    assert chamadas["n"] == 3
+
+
+def test_conexao_que_nao_volta_vira_erro_de_conexao():
+    transporte, chamadas = _transporte_instavel(falhas=99)
+    cliente = ClienteOpenRouter(chave="k", transporte=transporte, espera=0)
+    with pytest.raises(ErroDeConexao):
+        cliente.completar("s", "u")
+    assert chamadas["n"] == 3
