@@ -23,10 +23,8 @@ from src.pacote.carregador import carregar_projeto
 from src.rag.corpus import carregar_regras, montar_corpus, recuperar_contexto
 from tests.unit.proposta_exemplo import REGRA_NOVIDADE, ClienteFalso, proposta
 
-PRJ99 = (
-    Path(__file__).resolve().parents[2]
-    / "dados/fixtures/pacote_exemplo/01_projetos/02_casos_para_analise/PRJ99"
-)
+PACOTE = Path(__file__).resolve().parents[2] / "dados/fixtures/pacote_exemplo"
+PRJ99 = PACOTE / "01_projetos/02_casos_para_analise/PRJ99"
 ANALISTA = "ANL-01"
 MOTIVO = "O protocolo compara duas versões com critério prévio."
 
@@ -106,6 +104,53 @@ def test_base_de_regras_tem_secao_por_criterio():
     regras = {t.secao: t.trecho_id for t in carregar_regras()}
     assert regras["Novidade"] == REGRA_NOVIDADE
     assert {"Incerteza tecnológica", "Classificações", "Tratamento das evidências"} <= set(regras)
+
+
+# ----- biblioteca de referencia -----
+
+def test_orientacoes_trazem_o_nucleo_do_guia():
+    from src.rag.biblioteca import buscar_orientacoes
+
+    secoes = [t.secao for t in buscar_orientacoes(PACOTE)]
+    assert secoes[0].endswith("· Critérios de análise")
+    assert any(s.endswith("· Elegível") for s in secoes)
+
+
+def test_um_exemplo_por_classificacao_sem_o_proprio_projeto():
+    from src.rag.biblioteca import exemplos_de_referencia
+
+    assert [t.trecho_id for t in exemplos_de_referencia(PACOTE)] == [
+        "historico:PRJ97", "historico:PRJ96",
+    ]
+    assert [t.trecho_id for t in exemplos_de_referencia(PACOTE, excluir="PRJ97")] == [
+        "historico:PRJ98", "historico:PRJ96",
+    ]
+
+
+def test_analise_leva_orientacoes_e_exemplos_mas_nao_aceita_fonte_de_exemplo(corpus):
+    from src.rag.biblioteca import buscar_orientacoes
+
+    # O nucleo do guia nao vai no prompt: a base de regras ja cobre esse conteudo.
+    recuperadas = [t.trecho_id for t in buscar_orientacoes(PACOTE, com_nucleo=False)]
+    orientacao = recuperadas[0]
+    assert "guia-participante#002" not in recuperadas
+
+    dados = proposta()
+    dados["criterios"][0]["fontes"] = ["historico:PRJ96", "evidencias/metodo.md#1"]
+    dados["criterios"][1]["regra"] = orientacao
+    cliente = ClienteFalso(dados)
+    analise = analisar_projeto(corpus.projeto, cliente, corpus, raiz=PACOTE)
+
+    usuario = cliente.chamadas[0][1]
+    assert "# ORIENTAÇÕES DO DESAFIO" in usuario and f"[{orientacao}]" in usuario
+    assert "# EXEMPLOS DE REFERÊNCIA" in usuario and "[historico:PRJ97]" in usuario
+    assert analise.exemplos == ["historico:PRJ97", "historico:PRJ96"]
+    # Orientacao do desafio pode ser citada como regra; fonte de exemplo, nunca.
+    assert analise.proposta.criterio(Criterio.CRIATIVIDADE).regra == orientacao
+    assert analise.proposta.criterio(Criterio.NOVIDADE).fontes == ["evidencias/metodo.md#1"]
+    assert analise.fontes_descartadas["novidade"] == ["historico:PRJ96"]
+    como = " ".join(criar_pontos(analise)[0].justificativa["como"])
+    assert "PRJ97, PRJ96" in como and "semelhança" in como
 
 
 # ----- analise -----
@@ -188,6 +233,73 @@ def test_duas_respostas_invalidas_viram_erro(corpus):
         analisar_projeto(corpus.projeto, cliente, corpus)
 
 
+def test_criterios_sem_o_campo_criterio_sao_aceitos_pela_ordem(corpus):
+    dados = proposta()
+    for avaliacao in dados["criterios"]:
+        del avaliacao["criterio"]
+    cliente = ClienteFalso(dados)
+    analise = analisar_projeto(corpus.projeto, cliente, corpus)
+    assert len(cliente.chamadas) == 1
+    assert analise.proposta.criterio(Criterio.INCERTEZA).estado == "NÃO CARACTERIZADA"
+
+
+def test_criterios_como_objeto_sao_aceitos_pela_chave(corpus):
+    dados = proposta()
+    dados["criterios"] = {c.pop("criterio"): c for c in reversed(dados["criterios"])}
+    analise = analisar_projeto(corpus.projeto, ClienteFalso(dados), corpus)
+    assert analise.proposta.criterio(Criterio.TRANSFERENCIA).estado == "DOCUMENTADA PARA A CONFIGURAÇÃO"
+
+
+def test_varias_fontes_no_mesmo_campo_sao_separadas(corpus):
+    dados = proposta()
+    dados["criterios"][0]["fontes"] = ["evidencias/metodo.md#1; PRJ99-S01", "PRJ99-OBS01 e PRJ99-EV77"]
+    analise = analisar_projeto(corpus.projeto, ClienteFalso(dados), corpus)
+    assert analise.proposta.criterio(Criterio.NOVIDADE).fontes == [
+        "evidencias/metodo.md#1", "PRJ99-S01", "PRJ99-OBS01",
+    ]
+    assert analise.fontes_descartadas["novidade"] == ["PRJ99-EV77"]
+
+
+def test_apresentacao_da_conferencia_e_das_fontes(corpus):
+    from src import apresentacao as ap
+    from src.verificacao.recalculo import conferir_projeto
+
+    assert ap.numero(240000) == "240.000" and ap.numero(0.82) == "0,82" and ap.numero(None) == "vazio"
+    assert ap.leitura_do_resultado(96, 240000, "contagem", "casos") == "96 de 240.000 casos (0,04%)"
+    assert ap.leitura_do_resultado(120, 20, "percentil_95", "ms") == "120 ms"
+    assert ap.natureza_da_fonte(corpus, "PRJ99-S01")[:2] == ("registro primário", "green")
+    assert ap.natureza_da_fonte(corpus, "regras-v1#002")[0] == "regra da ferramenta"
+    assert ap.agrupar_fontes([
+        {"afirmacao": "A", "trecho_id": "x"}, {"afirmacao": "B", "trecho_id": "y"},
+        {"afirmacao": "A", "trecho_id": "z"}, {"afirmacao": "A", "trecho_id": "x"},
+    ]) == [("A", ["x", "z"]), ("B", ["y"])]
+    motivos = {l["Fonte citada"]: l["Por que foi descartada"] for l in ap.fontes_descartadas(corpus, {
+        "novidade": ["evidencias/entradas.csv", "PRJ99-EV77", "historico:PRJ96", "PRJ99-CR02"],
+    })}
+    assert motivos["evidencias/entradas.csv"].startswith("Cita um arquivo inteiro")
+    assert motivos["PRJ99-EV77"] == "Não existe neste projeto."
+    assert motivos["historico:PRJ96"].startswith("É de um parecer histórico")
+    assert motivos["PRJ99-CR02"].startswith("Existe no projeto")
+    assert ap.nome_do_ponto("incerteza") == "Incerteza tecnológica"
+    assert ap.texto_em_blocos(
+        "Contexto\nUm serviço lento consumia as\nconexões dos demais.\n- item um\nLimite\nSem cobertura."
+    ) == [
+        ("titulo", "Contexto"), ("paragrafo", "Um serviço lento consumia as conexões dos demais."),
+        ("item", "item um"), ("titulo", "Limite"), ("paragrafo", "Sem cobertura."),
+    ]
+
+
+def test_arquivo_tabular_inteiro_pode_ser_citado(corpus):
+    dados = proposta()
+    dados["criterios"][3]["fontes"] = ["evidencias/medicoes.csv", "evidencias/resultados.csv"]
+    analise = analisar_projeto(corpus.projeto, ClienteFalso(dados), corpus)
+    assert analise.proposta.criterio(Criterio.SISTEMATICIDADE).fontes == [
+        "evidencias/medicoes.csv", "evidencias/resultados.csv",
+    ]
+    assert "sistematicidade" not in analise.fontes_descartadas
+    assert "33 casos" in corpus.trechos["evidencias/resultados.csv"].texto
+
+
 def test_extrai_json_cercado_por_texto():
     assert extrair_json('Segue:\n```json\n{"a": 1}\n```\nfim') == {"a": 1}
     with pytest.raises(RespostaInvalida):
@@ -218,11 +330,52 @@ def test_fluxo_completo_ate_o_dossie(corpus):
         projeto_id="PRJ99", pontos=pontos, trechos=trechos_do_dossie(corpus),
         versao_norma="base de regras regras-v1", nao_verificado=analise.avisos,
     )
-    assert "nao encontrada na base" not in dossie
+    assert "não encontrada na base" not in dossie
     assert "`evidencias/metodo.md#1`" in dossie
     assert f"`{REGRA_NOVIDADE}`" in dossie
     assert "falso/modelo" in dossie
     assert "- Analista: ANL-01" in dossie
+
+
+def test_cada_ponto_tem_parecer_em_frase_com_o_motivo(corpus):
+    analise = analisar_projeto(corpus.projeto, ClienteFalso(proposta()), corpus)
+    pontos = {p.decision_id: p for p in criar_pontos(analise)}
+    parecer = lambda chave: pontos[chave].justificativa["parecer"]  # noqa: E731
+
+    assert parecer("PRJ99-D2-novidade") == (
+        "A novidade não está demonstrada, porque o coletor já oferecia o descarte por janela."
+    )
+    assert parecer("PRJ99-D2-sistematicidade").startswith(
+        "O trabalho está documentado como aceite, não como investigação, porque quarenta leituras"
+    )
+    assert parecer("PRJ99-D1").startswith("Etiquetas eram lidas duas vezes pelo coletor. Antes do projeto:")
+    assert parecer("PRJ99-D3") == "1 atividade de rotina (PRJ99-ATV02). 1 atividade de apoio (PRJ99-ATV01)."
+    assert "1 evidência contrária" in parecer("PRJ99-D4") and "1 lacuna" in parecer("PRJ99-D4")
+    assert pontos["PRJ99-D2-novidade"].justificativa["titulo"] == "D2 · Novidade"
+
+    lista = list(pontos.values())
+    while (atual := proximo_ponto_pendente(lista)).ponto != Ponto.D5:
+        atual.aceitar(ANALISTA)
+    d5 = propor_classificacao(lista, analise)
+    assert d5.justificativa["parecer"].startswith(
+        "Não elegível, porque novidade, criatividade e incerteza tecnológica têm conclusão negativa"
+    )
+    assert "Critérios confirmados: a novidade não está demonstrada;" in d5.justificativa["parecer"]
+    # O modelo chegou a mesma classe, entao a justificativa dele acompanha.
+    assert d5.justificativa["parecer"].endswith("O trabalho ajustou um parâmetro de recurso existente.")
+
+
+def test_motivo_mantem_siglas_e_palavras_do_analista():
+    from src.motor.linguagem import com_motivo, frase_da_decisao
+
+    assert com_motivo("Elegível", "GW-7 já descreve o recurso.") == "Elegível, porque GW-7 já descreve o recurso."
+    assert com_motivo("Elegível", "A equipe testou.") == "Elegível, porque a equipe testou."
+    assert com_motivo("Elegível", "") == "Elegível."
+    frase = frase_da_decisao("alterada", "ANL-02", "INVESTIGADA", "NÃO CARACTERIZADA", "Maria conferiu o runbook.")
+    assert frase == (
+        "ANL-02 alterou a proposta de “INVESTIGADA” para “NÃO CARACTERIZADA”. "
+        "Motivo registrado: Maria conferiu o runbook."
+    )
 
 
 def test_classificacao_segue_o_que_o_analista_decidiu_e_nao_o_modelo(corpus):
@@ -241,6 +394,9 @@ def test_classificacao_segue_o_que_o_analista_decidiu_e_nao_o_modelo(corpus):
     d5 = propor_classificacao(pontos, analise)
     assert analise.proposta.classificacao_sugerida == NAO_ELEGIVEL
     assert d5.valor_proposto == COM_RESSALVAS
+    # O modelo sugeriu outra classe: a justificativa dele nao entra no parecer.
+    assert d5.justificativa["parecer"].startswith("Com ressalvas, porque há pesquisa e desenvolvimento")
+    assert "ajustou um parâmetro" not in d5.justificativa["parecer"]
 
 
 def test_combinacao_sem_regra_propoe_o_status_padrao_com_aviso(corpus):

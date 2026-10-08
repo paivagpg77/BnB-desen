@@ -13,6 +13,7 @@ from pathlib import Path
 
 from src.pacote.carregador import carregar_projeto, localizar_projetos, raiz_do_pacote
 from src.pacote.historicos import ARQUIVO_HISTORICOS, carregar_historicos
+from src.rag import biblioteca
 from src.rag.corpus import CorpusProjeto, carregar_regras, montar_corpus
 from src.verificacao.recalculo import so_contagem_de_entrega
 from src.verificacao.referencias import resolver_referencia
@@ -35,15 +36,35 @@ def corpus_do_projeto(projeto_id: str) -> CorpusProjeto:
     return _corpus(str(raiz_do_pacote()), projeto_id.strip().upper())
 
 
+def _e_historico(pasta: Path) -> bool:
+    return "01_historico" in pasta.parts
+
+
 def listar_projetos() -> list[dict]:
-    """Projetos do pacote, com o grupo (histórico ou caso para análise)."""
+    """
+    Casos para análise (PRJ21 a PRJ40). Os históricos não entram aqui: eles
+    servem só de referência e são consultados por listar_historicos.
+    """
     return [
-        {
-            "projeto_id": projeto_id,
-            "grupo": "histórico" if "01_historico" in pasta.parts else "caso para análise",
-        }
+        {"projeto_id": projeto_id, "grupo": "caso para análise"}
         for projeto_id, pasta in localizar_projetos(raiz_do_pacote()).items()
+        if not _e_historico(pasta)
     ]
+
+
+def listar_historicos() -> list[dict]:
+    """Projetos históricos já classificados (PRJ01 a PRJ20), usados como referência."""
+    raiz = raiz_do_pacote()
+    if not (Path(raiz) / ARQUIVO_HISTORICOS).is_file():
+        return []
+    return [
+        {"projeto_id": p.projeto_id, "titulo": p.titulo, "classificacao": p.classificacao}
+        for p in carregar_historicos(raiz).values()
+    ]
+
+
+def e_caso_para_analise(projeto_id: str) -> bool:
+    return projeto_id.strip().upper() in {p["projeto_id"] for p in listar_projetos()}
 
 
 def resumo_do_projeto(projeto_id: str) -> dict:
@@ -103,6 +124,8 @@ def conferir_resultados(projeto_id: str) -> list[dict]:
         {
             "ensaio_id": c.ensaio_id,
             "versao": c.versao,
+            "metrica": c.metrica,
+            "unidade": c.unidade,
             "operacao": c.operacao,
             "natureza": c.natureza,
             "situacao": c.situacao.value,
@@ -122,6 +145,27 @@ def buscar_regras(consulta: str, k: int = 3) -> list[dict]:
     return [
         {"regra_id": t.trecho_id, "secao": t.secao, "pontuacao": round(p, 3), "texto": t.texto}
         for p, t in indice.buscar(consulta, k=max(1, min(k, 10)))
+    ]
+
+
+def buscar_orientacoes(consulta: str, k: int = 3) -> list[dict]:
+    """Busca nos documentos do desafio: guia do participante, LEIA_ME, guia do desafio e dicionário."""
+    indice = IndiceBM25(biblioteca.carregar_orientacoes(raiz_do_pacote()))
+    return [
+        {"trecho_id": t.trecho_id, "documento": t.secao, "pontuacao": round(p, 3), "texto": t.texto}
+        for p, t in indice.buscar(consulta, k=max(1, min(k, 10)))
+    ]
+
+
+def buscar_pareceres_historicos(consulta: str, k: int = 3) -> list[dict]:
+    """
+    Busca nos pareceres dos projetos históricos, para ver como uma conclusão
+    foi fundamentada. Referência de método, não base para classificar outro
+    projeto por semelhança.
+    """
+    return [
+        {"trecho_id": t.trecho_id, "projeto": t.secao, "pontuacao": round(p, 3), "texto": t.texto}
+        for p, t in biblioteca.buscar_pareceres(raiz_do_pacote(), consulta, k=max(1, min(k, 10)))
     ]
 
 

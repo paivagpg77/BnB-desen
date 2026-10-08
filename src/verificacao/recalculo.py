@@ -48,6 +48,8 @@ class ConferenciaResultado:
     base_registrada: Optional[float]
     base_recalculada: Optional[float]
     detalhe: str = ""
+    metrica: str = ""
+    unidade: str = ""
 
     @property
     def ok(self) -> bool:
@@ -121,6 +123,8 @@ def conferir_resultado(
             base_registrada=resultado.base_de_calculo,
             base_recalculada=base,
             detalhe=detalhe,
+            metrica=resultado.metrica,
+            unidade=resultado.unidade,
         )
 
     if not do_ensaio:

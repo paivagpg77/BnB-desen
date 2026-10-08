@@ -49,8 +49,24 @@ def test_conferencia_e_regras():
 def test_projeto_inexistente_e_pacote_sem_historicos_dao_erro_claro():
     with pytest.raises(ferramentas.ProjetoDesconhecido, match="PRJ01"):
         ferramentas.resumo_do_projeto("PRJ01")
-    with pytest.raises(ferramentas.ProjetoDesconhecido, match="históricos"):
+    with pytest.raises(ferramentas.ProjetoDesconhecido, match="não é um projeto histórico"):
         ferramentas.parecer_historico("PRJ01")
+
+
+def test_historicos_ficam_fora_da_lista_de_analise():
+    assert [h["projeto_id"] for h in ferramentas.listar_historicos()] == ["PRJ96", "PRJ97", "PRJ98"]
+    assert ferramentas.e_caso_para_analise("PRJ99") is True
+    assert ferramentas.e_caso_para_analise("PRJ97") is False
+    assert ferramentas.parecer_historico("prj97")["classificacao"] == "Elegível"
+
+
+def test_busca_nas_orientacoes_e_nos_pareceres():
+    orientacao = ferramentas.buscar_orientacoes("classificar por semelhança", k=1)[0]
+    assert orientacao["trecho_id"].startswith("guia-participante#")
+    assert "históricos" in orientacao["documento"]
+    parecer = ferramentas.buscar_pareceres_historicos("entrevista registro", k=1)[0]
+    assert parecer["trecho_id"] == "historico:PRJ97"
+    assert "Divergência entre depoimento e registro" in parecer["texto"]
 
 
 def test_sem_pacote_configurado_o_erro_cita_o_env(monkeypatch):
@@ -65,8 +81,9 @@ def test_servidor_mcp_expoe_as_ferramentas_e_responde():
 
     nomes = {t.name for t in asyncio.run(servidor.list_tools())}
     assert nomes == {
-        "listar_projetos", "resumo_do_projeto", "buscar_evidencias", "ler_referencia",
-        "conferir_resultados", "buscar_regras", "parecer_historico",
+        "listar_projetos", "listar_historicos", "resumo_do_projeto", "buscar_evidencias",
+        "ler_referencia", "conferir_resultados", "buscar_regras", "buscar_orientacoes",
+        "buscar_pareceres_historicos", "parecer_historico",
     }
     resultado = asyncio.run(
         servidor.call_tool("buscar_evidencias", {"projeto_id": "PRJ99", "consulta": "janela de descarte", "k": 1})

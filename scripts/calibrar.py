@@ -21,8 +21,8 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
 from src import ferramentas  # noqa: E402
-from src.llm.cliente import ErroLLM, LimiteDeUso, cliente_padrao  # noqa: E402
-from src.motor.analisador import analisar_projeto  # noqa: E402
+from src.llm.cliente import ErroLLM, LimiteDeUso  # noqa: E402
+from src.motor.orquestrador import analisar_com_orquestracao, papeis_padrao  # noqa: E402
 from src.motor.regras import ROTULO_CRITERIO  # noqa: E402
 from src.pacote.carregador import raiz_do_pacote  # noqa: E402
 from src.pacote.historicos import carregar_historicos  # noqa: E402
@@ -38,7 +38,7 @@ def main() -> int:
     ids = [p.upper() for p in opcoes.projetos] if opcoes.projetos else sorted(historicos)
     ids = ids[: opcoes.limite] if opcoes.limite else ids
     try:
-        cliente = cliente_padrao()
+        papeis = papeis_padrao()
     except ErroLLM as erro:
         print(erro)
         return 1
@@ -49,7 +49,7 @@ def main() -> int:
         parecer = historicos[projeto_id]
         corpus = ferramentas.corpus_do_projeto(projeto_id)
         try:
-            analise = analisar_projeto(corpus.projeto, cliente, corpus)
+            analise = analisar_com_orquestracao(corpus.projeto, papeis, corpus)
         except LimiteDeUso as erro:
             print(f"{projeto_id}: {erro} Rodada interrompida.")
             break
@@ -67,6 +67,7 @@ def main() -> int:
             "derivada": analise.classificacao_derivada,
             "sugerida_pelo_modelo": analise.proposta.classificacao_sugerida,
             "acertou": analise.classificacao_derivada == parecer.classificacao,
+            "modelo_acertou": analise.proposta.classificacao_sugerida == parecer.classificacao,
             "criterios_iguais": criterios_iguais,
             "divergencia_esperada": bool(parecer.divergencia_depoimento),
             "divergencias_encontradas": len(analise.proposta.divergencias),
@@ -79,15 +80,19 @@ def main() -> int:
             f"{projeto_id}: {'OK ' if linha['acertou'] else 'ERRO'} "
             f"referência={linha['referencia']} | derivada={linha['derivada']} | "
             f"critérios iguais={criterios_iguais}/5 | "
-            f"fontes descartadas={linha['fontes_descartadas']}"
+            f"modelo sozinho={linha['sugerida_pelo_modelo']} | "
+            f"fontes descartadas={linha['fontes_descartadas']}",
+            flush=True,
         )
 
     avaliados = [l for l in linhas if "erro" not in l]
     if avaliados:
         acertos = sum(l["acertou"] for l in avaliados)
         criterios = sum(l["criterios_iguais"] for l in avaliados)
+        do_modelo = sum(l["modelo_acertou"] for l in avaliados)
         print(
-            f"\nClassificação: {acertos}/{len(avaliados)} | "
+            f"\nClassificação pela regra: {acertos}/{len(avaliados)} | "
+            f"classificação do modelo sozinho: {do_modelo}/{len(avaliados)} | "
             f"critérios: {criterios}/{5 * len(avaliados)}"
         )
     saida = RAIZ / "saida"

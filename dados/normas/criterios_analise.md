@@ -26,6 +26,7 @@ Indeterminada: existe plano ou desenho, mas sem regra de decisão, limiares ou v
 Pergunta: havia dúvida técnica real sobre viabilidade ou comportamento, enfrentada por investigação?
 Investigada: há hipótese, alternativas comparadas e resultado medido, inclusive resultado desfavorável. Falha experimental pode pertencer a P&D.
 Não caracterizada: os desvios foram resolvidos por configuração, mapeamento ou receita existente, sem hipótese técnica desconhecida. Aceite perfeito pode pertencer a rotina.
+Ajustar parâmetro dentro da faixa já admitida pelo produto, ou corrigir configuração depois de falha de aceite, não é investigação de incerteza.
 Alegada, não verificável: a incerteza é afirmada, mas faltam versão executada, referência de comparação ou saídas que permitam verificá-la.
 
 ## Sistematicidade

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.motor.regras import CLASSIFICACOES, Criterio
 
@@ -71,6 +71,34 @@ class PropostaModelo(BaseModel):
     elo_ausente: Optional[str] = None
     evidencias_a_solicitar: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _identificar_criterios(cls, dados):
+        """
+        Modelos menores as vezes omitem o campo 'criterio' ou devolvem os
+        criterios como objeto. Quando a correspondencia e inequivoca (cinco
+        itens na ordem pedida, ou chaves com o nome do criterio), ela e aceita.
+        """
+        if not isinstance(dados, dict):
+            return dados
+        criterios = dados.get("criterios")
+        nomes = [c.value for c in Criterio]
+        if isinstance(criterios, dict):
+            criterios = [
+                {**valor, "criterio": chave}
+                for chave, valor in criterios.items()
+                if isinstance(valor, dict)
+            ]
+        elif (
+            isinstance(criterios, list)
+            and len(criterios) == len(nomes)
+            and all(isinstance(c, dict) and "criterio" not in c for c in criterios)
+        ):
+            criterios = [{**c, "criterio": nome} for c, nome in zip(criterios, nomes)]
+        else:
+            return dados
+        return {**dados, "criterios": criterios}
+
     @field_validator("classificacao_sugerida")
     @classmethod
     def _classe_conhecida(cls, valor: str) -> str:
@@ -91,6 +119,31 @@ class PropostaModelo(BaseModel):
         return next(c for c in self.criterios if c.criterio == criterio)
 
 
+class PapelExecutado(BaseModel):
+    papel: Literal["analista", "confronto", "auditor"]
+    provedor: str = ""
+    modelo: str = ""
+    segundos: Optional[float] = None
+    chamadas: int = 0
+    tokens_entrada: int = 0
+    tokens_saida: int = 0
+    concluido: bool = True
+    observacao: str = ""
+
+
+class Auditoria(BaseModel):
+    """Veredito do modelo auditor: as fontes citadas sustentam a justificativa?"""
+
+    criterio: Criterio
+    veredito: Literal["sustenta", "sustenta_em_parte", "nao_sustenta"]
+    comentario: str = ""
+
+
+class Orquestracao(BaseModel):
+    papeis: list[PapelExecutado] = Field(default_factory=list)
+    auditoria: list[Auditoria] = Field(default_factory=list)
+
+
 class AnaliseConferida(BaseModel):
     """Proposta do modelo depois da conferencia automatica."""
 
@@ -105,5 +158,10 @@ class AnaliseConferida(BaseModel):
     avisos: list[str] = Field(default_factory=list)
     # Identificadores dos trechos enviados ao modelo.
     contexto: list[str] = Field(default_factory=list)
+    # Trechos de orientacao e pareceres historicos enviados como referencia.
+    orientacoes: list[str] = Field(default_factory=list)
+    exemplos: list[str] = Field(default_factory=list)
     classificacao_derivada: Optional[str] = None
     regra_classificacao: str = ""
+    # Preenchido quando a analise roda com mais de um modelo.
+    orquestracao: Optional[Orquestracao] = None

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from src import ferramentas
+from src import apresentacao, ferramentas
 from src.decisoes.maquina_estados import (
     DecisaoInvalida,
     Ponto,
@@ -27,30 +27,52 @@ from src.decisoes.maquina_estados import (
 from src.dossie.gerador import gerar_dossie
 from src.llm import cliente as llm
 from src.llm.cliente import ErroLLM
-from src.motor.analisador import analisar_projeto
-from src.motor.fluxo import criar_pontos, propor_classificacao, trechos_do_dossie
-from src.motor.regras import CLASSIFICACOES, ESTADOS, ROTULO_CRITERIO, Criterio
+from src.motor import orquestrador
+from src.motor.fluxo import (
+    criar_pontos,
+    propor_classificacao,
+    titulo_do_ponto,
+    trechos_do_dossie,
+)
+from src.motor.linguagem import frase_da_decisao
+from src.motor.regras import CLASSIFICACOES, ESTADOS, Criterio
+from src.motor.schemas import AnaliseConferida
 from src.pacote.carregador import PacoteInvalido
 
 SAIDA = Path(__file__).resolve().parent / "saida"
-TITULOS = {
-    Ponto.D1: "D1 · Entendimento do projeto",
-    Ponto.D2: "D2 · Critério",
-    Ponto.D3: "D3 · Atividades: investigação ou rotina",
-    Ponto.D4: "D4 · Evidências contrárias, divergências e lacunas",
-    Ponto.D5: "D5 · Classificação final",
-}
+ANALISES = SAIDA / "analises"
 
 
 def titulo(ponto: PontoDecisao) -> str:
-    if ponto.ponto == Ponto.D2:
-        return f"D2 · {ROTULO_CRITERIO[Criterio(ponto.criterio)]}"
-    return TITULOS[ponto.ponto]
+    return titulo_do_ponto(ponto)
 
 
-def analisar(projeto_id: str) -> None:
-    corpus = ferramentas.corpus_do_projeto(projeto_id)
-    analise = analisar_projeto(corpus.projeto, llm.cliente_padrao(), corpus)
+def frase_decisao(ponto: PontoDecisao) -> str:
+    acao = {Status.ACEITA: "aceita", Status.ALTERADA: "alterada", Status.REJEITADA: "rejeitada"}
+    return frase_da_decisao(
+        acao.get(ponto.status, ponto.status.value),
+        ponto.analista or "",
+        ponto.valor_proposto,
+        ponto.valor_final,
+        ponto.motivo,
+    )
+
+
+def mostrar_parecer(ponto: PontoDecisao) -> None:
+    parecer = ponto.justificativa.get("parecer")
+    if parecer:
+        st.markdown(f"> {parecer}")
+    # Nos pontos de texto livre o valor repete o parecer; o rotulo so ajuda
+    # onde ha um vocabulario fechado (criterios e classificacao).
+    if ponto.ponto in (Ponto.D2, Ponto.D5):
+        st.caption(f"Valor proposto pela IA: {ponto.valor_proposto}")
+    auditoria = ponto.justificativa.get("auditoria")
+    if auditoria:
+        cor = {"sustenta": "green", "sustenta_em_parte": "orange", "nao_sustenta": "red"}
+        st.markdown(f":{cor[auditoria['veredito']]}-badge[Auditoria] {auditoria['texto']}")
+
+
+def abrir_sessao(projeto_id: str, corpus, analise: AnaliseConferida) -> None:
     st.session_state["sessao"] = {
         "projeto_id": projeto_id,
         "corpus": corpus,
@@ -59,35 +81,77 @@ def analisar(projeto_id: str) -> None:
     }
 
 
+def analisar(projeto_id: str) -> None:
+    corpus = ferramentas.corpus_do_projeto(projeto_id)
+    analise = orquestrador.analisar_com_orquestracao(
+        corpus.projeto, orquestrador.papeis_padrao(), corpus
+    )
+    ANALISES.mkdir(parents=True, exist_ok=True)
+    (ANALISES / f"{projeto_id}.json").write_text(analise.model_dump_json(indent=2), encoding="utf-8")
+    abrir_sessao(projeto_id, corpus, analise)
+
+
+def abrir_analise_salva(projeto_id: str) -> None:
+    """Reabre a ultima proposta do modelo, sem nova chamada. As decisoes recomecam."""
+    analise = AnaliseConferida.model_validate_json(
+        (ANALISES / f"{projeto_id}.json").read_text(encoding="utf-8")
+    )
+    abrir_sessao(projeto_id, ferramentas.corpus_do_projeto(projeto_id), analise)
+
+
 def repropor(sessao: dict, ponto: PontoDecisao) -> None:
     """Nova proposta do modelo para um ponto rejeitado."""
     if ponto.ponto == Ponto.D5:
         propor_classificacao(sessao["pontos"], sessao["analise"])
         return
-    nova = analisar_projeto(sessao["corpus"].projeto, llm.cliente_padrao(), sessao["corpus"])
+    nova = orquestrador.analisar_com_orquestracao(
+        sessao["corpus"].projeto, orquestrador.papeis_padrao(), sessao["corpus"]
+    )
     sessao["analise"] = nova
     equivalente = next(p for p in criar_pontos(nova) if p.decision_id == ponto.decision_id)
     ponto.propor(equivalente.valor_proposto, equivalente.justificativa)
 
 
+def mostrar_fonte(sessao: dict, trechos: dict, trecho_id: str) -> None:
+    trecho = trechos.get(trecho_id)
+    if trecho is None:
+        st.error(f"Fonte não encontrada: {trecho_id}")
+        return
+    natureza, cor, explicacao = apresentacao.natureza_da_fonte(sessao["corpus"], trecho_id)
+    with st.expander(f":{cor}[{natureza.capitalize()}] · **{trecho.secao}** · `{trecho_id}`"):
+        st.markdown(f":{cor}-badge[{natureza}] {explicacao.capitalize()}.")
+        marcacao = {"titulo": "**{}**", "item": "- {}", "paragrafo": "{}"}
+        st.markdown(
+            "\n\n".join(
+                marcacao[tipo].format(conteudo)
+                for tipo, conteudo in apresentacao.texto_em_blocos(trecho.texto)
+            ).replace("\n\n- ", "\n- ")
+        )
+
+
 def mostrar_fontes(sessao: dict, justificativa: dict) -> None:
     trechos = trechos_do_dossie(sessao["corpus"])
-    natureza = sessao["corpus"].natureza
-    for item in justificativa.get("porque", []):
-        trecho_id = item["trecho_id"]
-        trecho = trechos.get(trecho_id)
-        st.markdown(f"- {item['afirmacao']}")
-        if trecho is None:
-            st.error(f"Fonte não encontrada: {trecho_id}")
-            continue
-        rotulo = natureza.get(trecho_id, "regra da ferramenta")
-        with st.expander(f"Fonte: {trecho_id} ({rotulo})"):
-            st.text(trecho.texto)
-    for rotulo, chave in (("Evidências contrárias", "evidencias_contrarias"), ("Lacunas", "lacunas")):
-        if justificativa.get(chave):
-            st.markdown(f"**{rotulo}**")
-            for texto in justificativa[chave]:
-                st.markdown(f"- {texto}")
+    grupos = apresentacao.agrupar_fontes(justificativa.get("porque", []))
+    if not grupos:
+        st.warning("Este ponto não tem nenhuma fonte verificada. Confira antes de decidir.")
+    for afirmacao, fontes in grupos:
+        with st.container(border=True):
+            st.markdown(afirmacao)
+            st.caption(f"{len(fontes)} fonte(s) conferida(s):")
+            for trecho_id in fontes:
+                mostrar_fonte(sessao, trechos, trecho_id)
+
+    colunas = st.columns(2)
+    for coluna, rotulo, chave, cor in (
+        (colunas[0], "Evidências contrárias", "evidencias_contrarias", "red"),
+        (colunas[1], "Lacunas", "lacunas", "orange"),
+    ):
+        itens = justificativa.get(chave) or []
+        if itens:
+            with coluna.container(border=True):
+                st.markdown(f":{cor}-badge[{rotulo}: {len(itens)}]")
+                for texto in itens:
+                    st.markdown(f"- {texto}")
     if justificativa.get("como"):
         with st.expander("Como a proposta foi feita"):
             for passo in justificativa["como"]:
@@ -126,28 +190,97 @@ def formulario_decisao(sessao: dict, ponto: PontoDecisao, analista: str) -> None
     st.rerun()
 
 
+PAPEIS = {
+    "analista": "Avalia os critérios e propõe a classificação",
+    "confronto": "Confronta a entrevista com os registros e classifica as atividades",
+    "auditor": "Confere se as fontes citadas sustentam as justificativas",
+}
+
+
+def mostrar_modelos(analise: AnaliseConferida) -> None:
+    """Quem fez o que: um cartao por papel, com tempo e tokens."""
+    if not analise.orquestracao:
+        st.caption(f"Proposta gerada por {analise.modelo} · prompt {analise.versao_prompt}")
+        return
+    papeis = analise.orquestracao.papeis
+    st.caption(f"Prompt {analise.versao_prompt} · {len(papeis)} modelo(s), um papel cada")
+    for coluna, papel in zip(st.columns(len(papeis)), papeis):
+        with coluna.container(border=True):
+            selo = ":green-badge[respondeu]" if papel.concluido else ":red-badge[não respondeu]"
+            st.markdown(f"**{papel.papel.capitalize()}** {selo}")
+            st.caption(PAPEIS[papel.papel])
+            st.markdown(f"`{papel.provedor or 'modelo'}` · {papel.modelo}")
+            if papel.concluido:
+                st.caption(
+                    f"{papel.segundos} s · {apresentacao.numero(papel.tokens_entrada)} tokens de entrada · "
+                    f"{apresentacao.numero(papel.tokens_saida)} de saída"
+                )
+            else:
+                st.caption(papel.observacao)
+
+
 def mostrar_verificacoes(sessao: dict) -> None:
     projeto = sessao["corpus"].projeto
+    analise = sessao["analise"]
     conferencias = ferramentas.conferir_resultados(sessao["projeto_id"])
-    falhas = [c for c in conferencias if c["situacao"] not in ("confere", "transcricao_confere")]
+    resumo = apresentacao.resumo_da_conferencia(conferencias)
+    descartadas = apresentacao.fontes_descartadas(sessao["corpus"], analise.fontes_descartadas)
+
     st.subheader("Verificações automáticas (sem IA)")
-    if falhas:
-        st.error(f"{len(falhas)} resultado(s) não conferem com as medições.")
-    else:
+    colunas = st.columns(4)
+    colunas[0].metric("Resultados conferidos", resumo["total"])
+    colunas[1].metric("Conferem com as medições", resumo["conferem"])
+    colunas[2].metric("Com problema", resumo["com_problema"])
+    colunas[3].metric("Fontes do modelo descartadas", len(descartadas))
+
+    if resumo["com_problema"]:
+        st.error(f"{resumo['com_problema']} resultado(s) não conferem com as medições.")
+    elif resumo["total"]:
         st.success(
-            f"{len(conferencias)} resultado(s) conferem com as medições. "
+            f"{resumo['conferem']} resultado(s) conferem com as medições. "
             "Isso valida a conta, não a elegibilidade."
         )
-    with st.expander("Detalhe da conferência"):
-        st.dataframe(conferencias, hide_index=True)
+    if resumo["total"] and resumo["de_entrega"] == resumo["total"]:
+        st.warning(
+            "Todos os resultados são contagem de material entregue: não medem o "
+            "desempenho do mecanismo."
+        )
+
+    with st.expander("Conferência dos resultados, ensaio por ensaio", expanded=bool(resumo["com_problema"])):
+        st.caption(
+            "Cada resultado de resultados.csv foi recalculado a partir das linhas "
+            "de medicoes.csv do mesmo ensaio e da mesma versão."
+        )
+        for c in conferencias:
+            linha = apresentacao.linha_da_conferencia(c)
+            rotulo, cor = apresentacao.SITUACOES.get(c["situacao"], (c["situacao"], "gray"))
+            with st.container(border=True):
+                esquerda, direita = st.columns([3, 1])
+                esquerda.markdown(
+                    f"**{linha['O que foi medido']}** · `{linha['Ensaio']}` · versão `{linha['Versão']}`"
+                )
+                direita.markdown(f":{cor}-badge[{rotulo}]")
+                registrado, recalculado, forma = st.columns(3)
+                registrado.markdown(f"Registrado  \n**{linha['Registrado em resultados.csv']}**")
+                recalculado.markdown(f"Recalculado  \n**{linha['Recalculado das medições']}**")
+                forma.markdown(f"Cálculo  \n{linha['Como foi calculado']} · {linha['Tipo']}")
+                if c["detalhe"]:
+                    st.caption(c["detalhe"])
+
+    with st.expander(f"Fontes citadas pelo modelo e descartadas ({len(descartadas)})"):
+        if descartadas:
+            st.caption(
+                "O modelo citou estas fontes, mas a conferência não as aceitou. "
+                "Elas não sustentam nenhum ponto da proposta."
+            )
+            st.dataframe(descartadas, hide_index=True, width="stretch")
+        else:
+            st.markdown("Todas as fontes citadas pelo modelo existem nos trechos que ele recebeu.")
+
     if projeto.ausentes:
         st.warning("Arquivos do inventário ausentes ou ilegíveis: " + ", ".join(sorted(set(projeto.ausentes))))
-    for aviso in sessao["analise"].avisos:
+    for aviso in analise.avisos:
         st.warning(aviso)
-    descartadas = sessao["analise"].fontes_descartadas
-    if descartadas:
-        with st.expander("Fontes citadas pelo modelo e descartadas por não existirem"):
-            st.json(descartadas)
 
 
 def mostrar_dossie(sessao: dict) -> None:
@@ -185,10 +318,10 @@ def main() -> None:
 
     with st.sidebar:
         analista = st.text_input("Analista (identificação)").strip()
-        projeto_id = st.selectbox(
-            "Projeto",
-            [p["projeto_id"] for p in projetos],
-            format_func=lambda pid: f"{pid} · {next(p['grupo'] for p in projetos if p['projeto_id'] == pid)}",
+        projeto_id = st.selectbox("Projeto para análise", [p["projeto_id"] for p in projetos])
+        st.caption(
+            f"{len(projetos)} caso(s) para análise. Os projetos históricos já "
+            "classificados servem só de referência para o modelo."
         )
         if st.button("Analisar projeto", type="primary"):
             try:
@@ -196,6 +329,19 @@ def main() -> None:
                     analisar(projeto_id)
             except ErroLLM as erro:
                 st.error(str(erro))
+        if (ANALISES / f"{projeto_id}.json").is_file():
+            if st.button("Abrir análise salva"):
+                abrir_analise_salva(projeto_id)
+            st.caption("Reabre a última proposta do modelo para este projeto, sem nova chamada.")
+
+    # Link direto para uma analise salva: .../?projeto=PRJ21
+    pedido = str(st.query_params.get("projeto", "")).upper()
+    if (
+        "sessao" not in st.session_state
+        and ferramentas.e_caso_para_analise(pedido)
+        and (ANALISES / f"{pedido}.json").is_file()
+    ):
+        abrir_analise_salva(pedido)
 
     sessao = st.session_state.get("sessao")
     if not sessao:
@@ -203,7 +349,7 @@ def main() -> None:
         return
 
     st.header(f"Projeto {sessao['projeto_id']}")
-    st.caption(f"Proposta gerada por {sessao['analise'].modelo} · prompt {sessao['analise'].versao_prompt}")
+    mostrar_modelos(sessao["analise"])
     mostrar_verificacoes(sessao)
 
     pontos = sessao["pontos"]
@@ -211,10 +357,9 @@ def main() -> None:
     if decididos:
         st.subheader("Pontos decididos")
         for p in decididos:
-            with st.expander(f"{titulo(p)} · {p.valor_final} · {p.status.value} por {p.analista}"):
-                st.markdown(f"Proposta da IA: **{p.valor_proposto}**")
-                if p.motivo:
-                    st.markdown(f"Motivo do analista: {p.motivo}")
+            with st.expander(f"{titulo(p)} · {p.valor_final}"):
+                st.markdown(f"**Decisão:** {frase_decisao(p)}")
+                mostrar_parecer(p)
                 mostrar_fontes(sessao, p.justificativa)
 
     if decisao_final_pronta(pontos):
@@ -229,7 +374,7 @@ def main() -> None:
     st.progress(len(decididos) / len(pontos), text=f"{len(decididos)} de {len(pontos)} pontos decididos")
 
     if atual.status == Status.REJEITADA:
-        st.warning(f"Você rejeitou a proposta deste ponto. Motivo: {atual.motivo}")
+        st.warning(f"Você rejeitou a proposta deste ponto. Motivo registrado: {atual.motivo}")
         if st.button("Pedir nova proposta"):
             try:
                 with st.spinner("Pedindo nova proposta ao modelo..."):
@@ -240,7 +385,9 @@ def main() -> None:
                 st.rerun()
         return
 
-    st.markdown(f"Proposta da IA: **{atual.valor_proposto}**")
+    st.markdown("**Parecer da IA**")
+    mostrar_parecer(atual)
+    st.markdown("**O que sustenta o parecer**")
     mostrar_fontes(sessao, atual.justificativa)
     if not analista:
         st.info("Informe sua identificação na barra lateral para registrar a decisão.")

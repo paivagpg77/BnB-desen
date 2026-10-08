@@ -52,7 +52,9 @@ cp .env.example .env
 
 | Variável | Para que serve |
 |---|---|
-| `OPENROUTER_API_KEY` | Chave do OpenRouter, usada pelo motor de análise |
+| `OPENROUTER_API_KEY` | Chave do OpenRouter |
+| `GEMINI_API_KEY` | Chave do Gemini (aistudio.google.com/apikey) |
+| `GROQ_API_KEY` | Chave do Groq (console.groq.com/keys) |
 | `OPENROUTER_MODEL` | Modelo usado; em branco, vale o gratuito padrão |
 | `LEI_DO_BEM_PACOTE` | Pasta onde o pacote do hackathon foi extraído (a que contém `01_projetos`) |
 
@@ -72,6 +74,23 @@ pulados. Variável já definida no terminal tem prioridade sobre o `.env`.
 Na interface: informe sua identificação, escolha o projeto e peça a análise.
 Cada ponto (D1, os cinco critérios, D3, D4 e D5) mostra a proposta, as fontes e
 espera a sua decisão. O dossiê sai em `saida/` quando todos estão decididos.
+
+### Três modelos, um papel cada
+
+A análise é dividida entre provedores com camada gratuita, para nenhum repetir
+o trabalho do outro e cada um receber só o recorte de que precisa:
+
+| Papel | Provedor padrão | O que faz | O que recebe |
+|---|---|---|---|
+| Analista | Gemini | Avalia os cinco critérios e propõe a classificação | Regras, exemplos e evidências do projeto |
+| Confronto | Groq | Confronta a entrevista com os registros e classifica as atividades | Entrevista, ensaios, método, observações e atividades |
+| Auditor | OpenRouter | Diz se as fontes citadas sustentam cada justificativa | Justificativas do analista e o texto das fontes citadas |
+
+Analista e confronto rodam ao mesmo tempo; o auditor roda depois. Com menos de
+três chaves no `.env`, os papéis são redistribuídos; com uma só, o analista faz
+também o confronto e não há auditoria. Falha do confronto ou do auditor vira
+aviso na tela e não interrompe a análise. O resultado da auditoria é um alerta
+para o analista: não altera o estado de nenhum critério.
 
 O que o modelo pode e não pode fazer:
 

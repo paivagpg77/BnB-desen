@@ -113,3 +113,33 @@ def test_conexao_que_nao_volta_vira_erro_de_conexao():
     with pytest.raises(ErroDeConexao):
         cliente.completar("s", "u")
     assert chamadas["n"] == 3
+
+
+def test_esforco_de_raciocinio_so_e_enviado_quando_configurado(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_RACIOCINIO", raising=False)
+    capturado = {}
+    ClienteOpenRouter(chave="k", transporte=_transporte_fixo(200, RESPOSTA_OK, capturado)).completar("s", "u")
+    assert "reasoning" not in capturado["corpo"]
+    monkeypatch.setenv("OPENROUTER_RACIOCINIO", "Low")
+    ClienteOpenRouter(chave="k", transporte=_transporte_fixo(200, RESPOSTA_OK, capturado)).completar("s", "u")
+    assert capturado["corpo"]["reasoning"] == {"effort": "low"}
+
+
+def test_sobrecarga_do_provedor_e_tentada_de_novo():
+    respostas = [(503, b"alta demanda"), (200, json.dumps(RESPOSTA_OK).encode("utf-8"))]
+    chamadas = []
+
+    def transporte(url, cabecalhos, dados):
+        chamadas.append(cabecalhos)
+        return respostas[len(chamadas) - 1]
+
+    cliente = ClienteOpenRouter(chave="k", transporte=transporte, espera=0)
+    assert cliente.completar("s", "u").texto == '{"ok": true}'
+    assert len(chamadas) == 2
+    assert chamadas[0]["User-Agent"].startswith("lei-do-bem-analise")
+
+
+def test_sobrecarga_que_persiste_vira_erro():
+    cliente = ClienteOpenRouter(chave="k", transporte=lambda u, c, d: (503, b"alta demanda"), espera=0)
+    with pytest.raises(ErroLLM, match="HTTP 503"):
+        cliente.completar("s", "u")

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -28,9 +29,14 @@ from src.motor.regras import (
     estado_indeterminado,
 )
 from src.motor.schemas import AnaliseConferida, PropostaModelo
+from src.pacote.carregador import PacoteInvalido, raiz_do_pacote
 from src.pacote.modelos import ProjetoCarregado
+from src.rag.biblioteca import buscar_orientacoes, exemplos_de_referencia
 from src.rag.corpus import (
+    ATIVIDADE,
+    DEPOIMENTO,
     ID_REGRAS,
+    TABELAS_COBERTAS,
     CorpusProjeto,
     carregar_regras,
     montar_corpus,
@@ -102,15 +108,22 @@ def _sinais(corpus: CorpusProjeto) -> str:
 
 
 def montar_mensagem(
-    corpus: CorpusProjeto, contexto: list[Trecho], regras: list[Trecho]
+    corpus: CorpusProjeto,
+    contexto: list[Trecho],
+    regras: list[Trecho],
+    orientacoes: Optional[list[Trecho]] = None,
+    exemplos: Optional[list[Trecho]] = None,
 ) -> str:
     estados = "\n".join(
         f"- {c.value}: " + " | ".join(ESTADOS[c]) for c in Criterio
     )
     atividades = ", ".join(a.id_atividade for a in corpus.projeto.atividades)
+    sem_material = "Nenhum trecho disponível neste ambiente."
     return (
         f"Projeto em análise: {corpus.projeto.projeto_id}\n\n"
         f"# REGRAS\n\n{_bloco(regras)}\n\n"
+        f"# ORIENTAÇÕES DO DESAFIO\n\n{_bloco(orientacoes) if orientacoes else sem_material}\n\n"
+        f"# EXEMPLOS DE REFERÊNCIA\n\n{_bloco(exemplos) if exemplos else sem_material}\n\n"
         f"# ESTADOS PERMITIDOS\n\n{estados}\n\n"
         f"# SINAIS\n\n{_sinais(corpus)}\n\n"
         f"# EVIDÊNCIAS\n\n{_bloco(contexto, corpus.natureza)}\n\n"
@@ -161,13 +174,16 @@ def conferir_proposta(
     modelo: str,
 ) -> AnaliseConferida:
     lidos = {t.trecho_id for t in contexto}
+    lidos |= {t for t in TABELAS_COBERTAS if t in corpus.trechos}
     ids_regras = {t.trecho_id for t in regras}
     descartadas: dict[str, list[str]] = {}
     avisos: list[str] = []
 
     def filtrar(ponto: str, fontes: list[str]) -> list[str]:
         validas: list[str] = []
-        for fonte in fontes:
+        # O modelo as vezes junta varios identificadores em um campo so.
+        separadas = [p for f in fontes for p in re.split(r"\s*[;,|]\s*|\s+e\s+", f) if p.strip()]
+        for fonte in separadas:
             trecho_id = corpus.normalizar(fonte)
             if trecho_id in lidos:
                 if trecho_id not in validas:
@@ -249,16 +265,65 @@ def conferir_proposta(
     )
 
 
+def _raiz_disponivel(raiz: Optional[str | Path]) -> Optional[Path]:
+    try:
+        return raiz_do_pacote(raiz)
+    except PacoteInvalido:
+        return None
+
+
+def preparar_analise(
+    projeto: ProjetoCarregado,
+    corpus: Optional[CorpusProjeto] = None,
+    raiz: Optional[str | Path] = None,
+    sem_depoimento: bool = False,
+) -> dict:
+    """
+    Tudo o que antecede a chamada ao modelo: recuperacao das evidencias, das
+    orientacoes e dos exemplos, e a mensagem pronta. Separado para que a
+    latencia de cada etapa possa ser medida.
+
+    sem_depoimento tira a entrevista e as atividades do contexto: e usado
+    quando outro modelo cuida do confronto e da natureza das atividades.
+    """
+    corpus = corpus or montar_corpus(projeto)
+    regras = carregar_regras()
+    contexto = recuperar_contexto(corpus, CONSULTAS.values())
+    if sem_depoimento:
+        contexto = [
+            t for t in contexto
+            if corpus.natureza.get(t.trecho_id) not in (DEPOIMENTO, ATIVIDADE)
+        ]
+    pacote = _raiz_disponivel(raiz)
+    orientacoes = buscar_orientacoes(pacote, com_nucleo=False) if pacote else []
+    # O proprio projeto nunca entra como exemplo de si mesmo.
+    exemplos = exemplos_de_referencia(pacote, excluir=projeto.projeto_id) if pacote else []
+    return {
+        "corpus": corpus,
+        "regras": regras,
+        "contexto": contexto,
+        "orientacoes": orientacoes,
+        "exemplos": exemplos,
+        "sistema": ARQUIVO_PROMPT.read_text(encoding="utf-8"),
+        "mensagem": montar_mensagem(corpus, contexto, regras, orientacoes, exemplos),
+    }
+
+
 def analisar_projeto(
     projeto: ProjetoCarregado,
     cliente: ClienteLLM,
     corpus: Optional[CorpusProjeto] = None,
+    raiz: Optional[str | Path] = None,
 ) -> AnaliseConferida:
-    corpus = corpus or montar_corpus(projeto)
-    regras = carregar_regras()
-    contexto = recuperar_contexto(corpus, CONSULTAS.values())
-    sistema = ARQUIVO_PROMPT.read_text(encoding="utf-8")
-    proposta, modelo = _pedir_proposta(
-        cliente, sistema, montar_mensagem(corpus, contexto, regras)
+    preparo = preparar_analise(projeto, corpus, raiz)
+    proposta, modelo = _pedir_proposta(cliente, preparo["sistema"], preparo["mensagem"])
+    analise = conferir_proposta(
+        proposta,
+        preparo["corpus"],
+        preparo["contexto"],
+        preparo["regras"] + preparo["orientacoes"],
+        modelo,
     )
-    return conferir_proposta(proposta, corpus, contexto, regras, modelo)
+    analise.orientacoes = [t.trecho_id for t in preparo["orientacoes"]]
+    analise.exemplos = [t.trecho_id for t in preparo["exemplos"]]
+    return analise

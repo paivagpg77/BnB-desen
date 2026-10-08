@@ -40,6 +40,15 @@ REVISAO = "revisão técnica"
 ATIVIDADE = "atividade (autodeclaração)"
 INDICE = "índice"
 
+# Tabelas cujo conteudo o modelo ja le por outro caminho: resultados e medicoes
+# estao no trecho de cada ensaio, e as observacoes tem um trecho cada. Citar o
+# arquivo inteiro e valido sem repetir esse conteudo no contexto.
+TABELAS_COBERTAS = (
+    "evidencias/resultados.csv",
+    "evidencias/medicoes.csv",
+    "evidencias/observacoes.csv",
+)
+
 # Secoes do metodo que toda analise le: referencia anterior, mecanismo,
 # protocolo, parametros e limite da conclusao.
 _SECOES_OBRIGATORIAS_METODO = ("1", "2", "3", "4", "6")
@@ -58,7 +67,8 @@ class CorpusProjeto:
         Converte a referencia citada no identificador de um trecho do corpus.
         Aceita "arquivo#ensaio" e o identificador da evidencia (EV) do arquivo.
         """
-        ref = referencia.strip().strip("`")
+        # Modelos as vezes devolvem o identificador com os colchetes ou a crase.
+        ref = referencia.strip().strip("`[]").strip()
         if ref in self.trechos:
             return ref
         _, separador, ancora = ref.partition("#")
@@ -199,6 +209,52 @@ def montar_corpus(projeto: ProjetoCarregado) -> CorpusProjeto:
             PRIMARIO,
         )
 
+    # Os pareceres de referencia citam arquivos inteiros ("evidencias/medicoes.csv").
+    # Cada tabela tem um trecho proprio, para essa forma de citar ser conferivel.
+    if projeto.resultados:
+        adicionar(
+            "evidencias/resultados.csv",
+            "Resultados consolidados",
+            "Derivado de medicoes.csv; não é confirmação independente.\n"
+            + "\n".join(
+                f"- {r.ensaio_id} | versão {r.versao} | {r.metrica} | {r.operacao}: "
+                f"{_formatar(r.valor)} {r.unidade} | base {_formatar(r.base_de_calculo)} | "
+                f"natureza {r.natureza}"
+                for r in projeto.resultados
+            ),
+            DERIVADO,
+        )
+    if projeto.medicoes:
+        adicionar(
+            "evidencias/medicoes.csv",
+            "Medições",
+            f"{len(projeto.medicoes)} linhas de medição nos ensaios "
+            f"{', '.join(sorted({m.ensaio_id for m in projeto.medicoes}))}. "
+            "As linhas estão detalhadas no trecho de cada ensaio.",
+            PRIMARIO,
+        )
+    if projeto.cronologia:
+        adicionar(
+            "evidencias/cronologia.csv",
+            "Cronologia",
+            "\n".join(
+                f"- {c.evento_id} | {c.data} | versão {c.versao} | {c.evento} | {c.estado}"
+                for c in projeto.cronologia
+            ),
+            PRIMARIO,
+        )
+    if projeto.observacoes:
+        adicionar(
+            "evidencias/observacoes.csv",
+            "Observações",
+            "\n".join(
+                f"- {o.observacao_id} | entrada: {o.entrada} | referência: {o.referencia} | "
+                f"saída: {o.saida_ou_situacao}"
+                for o in projeto.observacoes
+            ),
+            PRIMARIO,
+        )
+
     inventario = [
         f"- {e.id_evidencia} | {e.tipo} | {e.arquivo} | {e.observacao} | "
         f"{'arquivo entregue' if e.presente and e.arquivo not in projeto.ausentes else 'ARQUIVO AUSENTE OU ILEGÍVEL'}"
@@ -223,6 +279,7 @@ def _obrigatorios(corpus: CorpusProjeto) -> list[str]:
         if n in (REVISAO, DEPOIMENTO) or t in corpus.projeto.ensaios()
     ]
     ids += [o.observacao_id for o in corpus.projeto.observacoes]
+    ids.append("evidencias/cronologia.csv")
     ids.append("inventario_evidencias.csv")
     vistos: set[str] = set()
     return [i for i in ids if i in corpus.trechos and not (i in vistos or vistos.add(i))]

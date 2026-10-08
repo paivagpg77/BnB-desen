@@ -85,7 +85,14 @@ def extrair_texto_pdf(caminho: Path) -> str:
             "Leitura de PDF exige a biblioteca pypdf (pip install pypdf)."
         ) from erro
     leitor = PdfReader(str(caminho))
-    return "\n".join(pagina.extract_text() or "" for pagina in leitor.pages)
+    linhas = [
+        linha
+        for pagina in leitor.pages
+        for linha in (pagina.extract_text() or "").splitlines()
+        # Rodape repetido e numero de pagina nao sao conteudo do documento.
+        if not linha.strip().isdigit() and not linha.startswith("Massa inteiramente fictícia")
+    ]
+    return "\n".join(linhas)
 
 
 def _slug(texto: str) -> str:
