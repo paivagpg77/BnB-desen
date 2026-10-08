@@ -18,6 +18,7 @@ import unicodedata
 from pathlib import Path
 from typing import Optional
 
+from src.config import carregar_env
 from src.pacote.modelos import (
     Atividade,
     Entrada,
@@ -43,10 +44,11 @@ class PacoteInvalido(ValueError):
 
 def raiz_do_pacote(caminho: Optional[str | Path] = None) -> Path:
     """Pasta raiz do pacote extraido. A massa fica fora do repositorio."""
+    carregar_env()
     valor = caminho or os.environ.get(VARIAVEL_PACOTE)
     if not valor:
         raise PacoteInvalido(
-            f"Informe a pasta do pacote ou defina a variavel {VARIAVEL_PACOTE}."
+            f"Informe a pasta do pacote ou defina {VARIAVEL_PACOTE} no arquivo .env."
         )
     raiz = Path(valor).expanduser()
     if not (raiz / "01_projetos").is_dir():

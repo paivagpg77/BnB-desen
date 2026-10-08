@@ -18,6 +18,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol
 
+from src.config import carregar_env
+
 URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 VARIAVEL_CHAVE = "OPENROUTER_API_KEY"
 VARIAVEL_MODELO = "OPENROUTER_MODEL"
@@ -68,9 +70,10 @@ class ClienteOpenRouter:
         modelo: Optional[str] = None,
         transporte: Transporte = _transporte_http,
     ):
+        carregar_env()
         self._chave = chave or os.environ.get(VARIAVEL_CHAVE)
         if not self._chave:
-            raise ErroLLM(f"Defina a variavel {VARIAVEL_CHAVE} com a chave do OpenRouter.")
+            raise ErroLLM(f"Defina {VARIAVEL_CHAVE} no arquivo .env com a chave do OpenRouter.")
         self.modelo = modelo or os.environ.get(VARIAVEL_MODELO) or MODELO_PADRAO
         self._transporte = transporte
 

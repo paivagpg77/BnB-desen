@@ -39,21 +39,22 @@ python3 -m venv .venv
 
 ## Massa do hackathon e modelo de linguagem
 
-A massa é confidencial e **não entra no repositório**. Extraia o pacote em uma
-pasta fora dele e aponte a variável de ambiente:
+A configuração local fica no arquivo `.env`, na raiz do projeto, que nunca vai
+para o git. Copie o modelo e preencha:
 
 ```bash
-export LEI_DO_BEM_PACOTE="/caminho/para/HACKATHON STS 2026-pacote_participantes_lei_do_bem_v10"
-.venv/bin/pytest tests/integracao   # sem a variável, estes testes são pulados
+cp .env.example .env
 ```
 
-O modelo de linguagem é acessado pelo OpenRouter. A chave fica só no ambiente,
-nunca em arquivo versionado:
+| Variável | Para que serve |
+|---|---|
+| `OPENROUTER_API_KEY` | Chave do OpenRouter, usada pelo motor de análise |
+| `OPENROUTER_MODEL` | Modelo usado; em branco, vale o gratuito padrão |
+| `LEI_DO_BEM_PACOTE` | Pasta onde o pacote do hackathon foi extraído (a que contém `01_projetos`) |
 
-```bash
-export OPENROUTER_API_KEY="..."
-export OPENROUTER_MODEL="nvidia/nemotron-3-super-120b-a12b:free"   # opcional; este é o padrão
-```
+A massa é confidencial e **não entra no repositório**: extraia o pacote em uma
+pasta fora dele. Sem `LEI_DO_BEM_PACOTE`, os testes de `tests/integracao` são
+pulados. Variável já definida no terminal tem prioridade sobre o `.env`.
 
 ## Estrutura
 
