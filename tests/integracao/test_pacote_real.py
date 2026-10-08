@@ -69,3 +69,34 @@ def test_fontes_dos_pareceres_historicos_resolvem(raiz, projetos):
             if not resolvida.existe:
                 falhas.append((projeto_id, fonte, resolvida.detalhe))
     assert falhas == []
+
+
+def test_regra_de_classificacao_reproduz_os_vinte_historicos(raiz):
+    from src.motor.regras import ROTULO_CRITERIO, derivar_classificacao
+
+    por_rotulo = {rotulo: criterio for criterio, rotulo in ROTULO_CRITERIO.items()}
+    erros = []
+    for projeto_id, parecer in carregar_historicos(raiz).items():
+        estados = {por_rotulo[c.criterio]: c.estado for c in parecer.criterios}
+        derivada, _ = derivar_classificacao(estados)
+        if derivada != parecer.classificacao:
+            erros.append((projeto_id, parecer.classificacao, derivada))
+    assert erros == []
+
+
+def test_corpus_cobre_as_fontes_dos_historicos_e_cabe_no_contexto(raiz, projetos):
+    from src.motor.analisador import CONSULTAS
+    from src.rag.corpus import ORCAMENTO_PADRAO, montar_corpus, recuperar_contexto
+
+    historicos = carregar_historicos(raiz)
+    for projeto_id, projeto in projetos.items():
+        corpus = montar_corpus(projeto)
+        contexto = recuperar_contexto(corpus, CONSULTAS.values())
+        lidos = {t.trecho_id for t in contexto}
+        # O nucleo obrigatorio nao pode passar muito do orcamento em nenhum projeto.
+        assert sum(len(t.texto) for t in contexto) < 2 * ORCAMENTO_PADRAO, projeto_id
+        assert {"dossie_projeto.pdf", "evidencias/metodo.md#1", "evidencias/metodo.md#2"} <= lidos
+        assert len([t for t in lidos if t.startswith("transcricao_entrevista_tecnica.pdf#")]) == 7
+        for criterio in historicos[projeto_id].criterios if projeto_id in historicos else ():
+            if "#" in criterio.fonte:
+                assert corpus.normalizar(criterio.fonte) in lidos, (projeto_id, criterio.fonte)

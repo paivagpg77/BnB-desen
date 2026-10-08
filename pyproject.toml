@@ -13,8 +13,16 @@ api = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
 ]
+app = [
+    "streamlit>=1.40",
+]
+mcp = [
+    "mcp>=2.0",
+]
 dev = [
     "pytest>=8.0",
+    "streamlit>=1.40",
+    "mcp>=2.0",
 ]
 
 [tool.pytest.ini_options]

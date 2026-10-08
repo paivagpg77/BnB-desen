@@ -124,3 +124,8 @@ class ClienteOpenRouter:
             modelo=dados.get("model", self.modelo),
             uso=dados.get("usage", {}),
         )
+
+
+def cliente_padrao() -> ClienteLLM:
+    """Cliente configurado pelo .env. Ponto unico de troca de provedor."""
+    return ClienteOpenRouter()

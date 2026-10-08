@@ -21,11 +21,15 @@ Decisão de stack: `docs/adr/0001-stack.md`
 - [x] Conferência de `resultados.csv` contra `medicoes.csv`, sem modelo de linguagem
 - [x] Resolução de referências (`PRJ21-EV08`, `PRJ21-S01`, `evidencias/metodo.md#2`): fonte que não existe bloqueia a proposta
 - [x] Cliente do OpenRouter atrás de uma interface, com o modelo como configuração
-- [ ] Motor de avaliação D1 a D5 e prompts dos critérios
-- [ ] Busca semântica (embeddings): sem prioridade, cada projeto cabe inteiro no contexto do modelo
-- [ ] Servidor MCP e API FastAPI
-- [ ] Interface React
-- [ ] Regressão contra a calibração PRJ01 a PRJ20, aguardando massa de dados
+- [x] Base de regras citável (`dados/normas/criterios_analise.md`) e regra explícita de classificação a partir dos estados dos critérios
+- [x] RAG: corpus do projeto com identificadores do pacote, núcleo obrigatório mais busca lexical dentro de um orçamento de contexto
+- [x] Motor de análise com LLM: proposta conferida fonte a fonte; critério sem fonte válida é rebaixado
+- [x] Fluxo D1 a D5 ligado ao motor; a classificação é derivada do que o analista confirmou
+- [x] Servidor MCP com as ferramentas de leitura das evidências
+- [x] Interface Streamlit básica, do projeto ao dossiê
+- [ ] Calibração contra PRJ01 a PRJ20 (`scripts/calibrar.py`), aguardando chave do modelo
+- [ ] Busca semântica (embeddings): sem prioridade, o contexto por projeto é pequeno
+- [ ] Módulo de discordâncias e revisão cega na interface
 
 Os dados em `dados/fixtures/` são fictícios e servem só para teste. Não são legislação nem projetos reais.
 
@@ -56,6 +60,30 @@ A massa é confidencial e **não entra no repositório**: extraia o pacote em um
 pasta fora dele. Sem `LEI_DO_BEM_PACOTE`, os testes de `tests/integracao` são
 pulados. Variável já definida no terminal tem prioridade sobre o `.env`.
 
+## Como usar
+
+```bash
+.venv/bin/pip install -e ".[dev]"          # inclui streamlit e mcp
+.venv/bin/streamlit run app.py              # interface do analista
+.venv/bin/python -m src.mcp_servidor        # servidor MCP (stdio)
+.venv/bin/python scripts/calibrar.py --limite 5   # regressão contra os históricos
+```
+
+Na interface: informe sua identificação, escolha o projeto e peça a análise.
+Cada ponto (D1, os cinco critérios, D3, D4 e D5) mostra a proposta, as fontes e
+espera a sua decisão. O dossiê sai em `saida/` quando todos estão decididos.
+
+O que o modelo pode e não pode fazer:
+
+1. Só recebe trechos recuperados do projeto e a base de regras.
+2. Cada fonte que ele cita é conferida contra o que recebeu; fonte inexistente é descartada e mostrada ao analista.
+3. Critério sem nenhuma fonte válida é rebaixado para o estado indeterminado.
+4. A classificação exibida vem da regra sobre os estados confirmados pelo analista, não da sugestão do modelo.
+
+Ferramentas do servidor MCP, todas somente de leitura: `listar_projetos`,
+`resumo_do_projeto`, `buscar_evidencias`, `ler_referencia`,
+`conferir_resultados`, `buscar_regras` e `parecer_historico`.
+
 ## Estrutura
 
 ```
@@ -67,11 +95,18 @@ src/
   verificacao/referencias.py    # toda fonte citada precisa existir no projeto
   verificacao/citacoes.py       # verificador lexical de citacoes
   llm/cliente.py                # interface do modelo de linguagem e cliente OpenRouter
+  rag/corpus.py                 # corpus do projeto, recuperacao de contexto e base de regras
+  motor/                        # regras de classificacao, analisador com LLM e fluxo D1 a D5
+  ferramentas.py                # consultas de leitura usadas pelo motor, pela interface e pelo MCP
+  mcp_servidor.py               # servidor MCP
+app.py                          # interface Streamlit
+prompts/analise_projeto.md      # prompt versionado do motor
+scripts/calibrar.py             # regressao contra os projetos historicos
 tests/unit/                     # testes sem rede e sem a massa do hackathon
 tests/integracao/               # testes contra a massa (exigem LEI_DO_BEM_PACOTE)
 docs/                           # base, ADRs
-prompts/                        # prompts versionados (ainda vazio)
-dados/                          # normas, projetos ficticios, calibracao (ainda vazio)
+dados/normas/                   # base de regras da ferramenta
+dados/fixtures/                 # projeto ficticio para os testes
 ```
 
 ## Regras que não podem ser quebradas
