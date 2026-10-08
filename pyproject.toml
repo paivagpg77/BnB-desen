@@ -1,0 +1,21 @@
+[project]
+name = "lei-do-bem-analise"
+version = "0.1.0"
+description = "Apoio a analise preliminar de elegibilidade a Lei do Bem (Hackathon STS 2026, desafio BNB)"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.5",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -1,0 +1,279 @@
+BASE DO PROJETO - FERRAMENTA DE APOIO A ELEGIBILIDADE DA LEI DO BEM
+Hackathon STS 2026 - Desafio Banco do Nordeste (BNB)
+Versao: 0.2 (inclui modulo de precedentes internos - Fase 1)
+Classificacao: Publico
+
+AVISO
+Este documento e uma base de trabalho. Esta sujeito a sugestoes e alteracoes
+a partir de novas informacoes, principalmente as respostas as perguntas
+norteadoras (secao 9).
+
+
+==============================================================
+1. PROBLEMA
+==============================================================
+
+Para um projeto receber os beneficios da Lei do Bem, a equipe do BNB precisa
+ficar muito tempo avaliando documentos. Isso gera:
+
+- custo de analise;
+- demora na resposta ao proponente;
+- dificuldade para avaliar com consistencia.
+
+A maior dificuldade hoje e validar se a solucao e inovadora (pesquisa e
+desenvolvimento experimental) ou se e apenas manutencao ou aplicacao de uma
+solucao ja conhecida.
+
+Contexto legal: a Lei do Bem (Lei no 11.196/2005, arts. 17 a 26, regulamentada
+pelo Decreto no 5.798/2006) concede beneficios fiscais a empresas. A regra
+central do desafio e: projeto inovador nao e P&D automaticamente. A
+recomendacao precisa ser sustentada por criterios e evidencias.
+
+
+==============================================================
+2. OBJETIVO
+==============================================================
+
+Construir uma ferramenta que apoie o analista na avaliacao preliminar de
+projetos, reduzindo tempo e custo, sem substituir o julgamento humano.
+
+Principio: a IA NAO escolhe. A IA direciona o analista em cada decisao, e o
+analista decide.
+
+
+==============================================================
+3. O QUE DEVE SER CONSTRUIDO
+==============================================================
+
+A ferramenta deve permitir que o analista:
+
+3.1 Inserir ou fornecer os dados e documentos de um projeto.
+3.2 Percorrer um fluxo de avaliacao baseado nas normas.
+3.3 Ver os criterios utilizados em cada etapa.
+3.4 Chegar a uma analise preliminar.
+3.5 Justificar a conclusao, com base em evidencias.
+3.6 Gerar um documento ou dossie com todo o raciocinio e as evidencias.
+3.7 Manter rastreabilidade de quem decidiu, quando e com base em que.
+
+
+==============================================================
+4. DECISOES QUE A FERRAMENTA DEVE APOIAR
+==============================================================
+
+DECISAO 1 - E pesquisa ou rotina?
+Ajudar o analista a identificar se houve desenvolvimento experimental
+verdadeiro. O Manual de Frascati usa cinco caracteristicas:
+
+  a) Novidade
+  b) Criatividade
+  c) Incerteza (tecnologica)
+  d) Organizacao / metodologia (sistematicidade)
+  e) Possibilidade de reproducao ou transferencia do conhecimento
+     (reprodutibilidade / transferibilidade)
+
+DECISAO 2 - Como provar que nao era rotina?
+Nao basta afirmar que era inovacao. E preciso construir uma "prova de nao
+rotina": mostrar, com evidencias, por que aquela atividade nao era apenas
+trabalho comum ou aplicacao de uma solucao existente.
+
+DECISAO 3 - Como provar isso daqui a tres anos?
+Toda decisao precisa deixar rastros. O sistema deve mostrar:
+
+  - qual regra foi utilizada;
+  - qual informacao do projeto justificou a decisao;
+  - quem tomou a decisao;
+  - quando foi tomada.
+
+Esses registros formam o dossie.
+
+
+==============================================================
+5. CRITERIOS DE SUCESSO DA FERRAMENTA
+==============================================================
+
+A ferramenta sera considerada bem-sucedida se:
+
+5.1 O fluxo de avaliacao cobrir as regras realmente importantes.
+5.2 O documento final for claro e defensavel em uma fiscalizacao.
+5.3 Reduzir o tempo da analise atual.
+5.4 Uma pessoa sem conhecimento profundo das normas conseguir utiliza-la.
+
+
+==============================================================
+6. REQUISITOS DE SEGURANCA E LGPD
+==============================================================
+
+6.1 Os dados dos projetos sao sigilosos e devem ficar em ambiente controlado.
+6.2 Dados pessoais (por exemplo, nomes em entrevistas tecnicas e identificacao
+    de analistas) devem ser tratados conforme a LGPD: coleta minima, finalidade
+    definida, acesso restrito e pseudonimizacao quando possivel.
+6.3 Nenhum dado real deve ser enviado a servicos de IA publicos.
+6.4 No hackathon, somente dados ficticios.
+6.5 Controle de acesso por usuario, com log de acoes.
+6.6 Logs de consulta, decisao, discordancia e exportacao devem ser preservados.
+
+
+==============================================================
+7. ARQUITETURA SUGERIDA
+==============================================================
+
+7.1 RAG (Retrieval-Augmented Generation) com tres corpora separados:
+    a) NORMAS: leis, decreto, instrucoes normativas, guias. Normativo.
+    b) PROJETOS: dossie, atividades, inventario, evidencias, entrevista
+       tecnica. Fatos do caso analisado.
+    c) PRECEDENTES INTERNOS: discordancias confirmadas entre analistas.
+       NAO normativo (ver modulo 11).
+
+7.2 A IA deve responder apenas com base nos trechos recuperados, citando a
+    origem de cada afirmacao. Quando nao houver base, deve dizer que nao
+    consta na documentacao.
+
+7.3 Opcionalmente, uso de MCP para padronizar o acesso das ferramentas da
+    IA aos documentos e registros.
+
+
+==============================================================
+8. FLUXO IDEAL DO PROJETO
+==============================================================
+
+ 1. Login do analista
+ 2. Novo projeto
+ 3. Upload / entrada dos documentos
+ 4. Extracao e organizacao das informacoes
+ 5. Analise dos 5 criterios de Frascati
+ 6. Identificacao de evidencias
+ 7. Analise de nao rotina
+ 8. Indicacao de pontos favoraveis, desfavoraveis e inconclusivos
+ 9. Analista revisa e toma a decisao
+10. Geracao automatica do dossie
+11. Historico / auditoria
+
+Pontos de confirmacao do analista (um por decisao): D1 a D5, conforme o fluxo
+de confirmacao definido na versao de requisitos.
+
+Status possiveis da classificacao (conforme material do desafio):
+  - Elegivel
+  - Com ressalvas
+  - Nao elegivel
+  - Evidencia insuficiente
+
+Regra: ausencia de evidencia nao e evidencia de nao elegibilidade.
+
+
+==============================================================
+9. PERGUNTAS NORTEADORAS (PARA VALIDAR COM O BNB)
+==============================================================
+
+9.1 Em que parte da analise voces mais perdem tempo hoje?
+9.2 Qual informacao faz voces duvidarem se um projeto e P&D ou rotina?
+9.3 Que evidencia faz voces confiarem em um enquadramento?
+9.4 O que um dossie precisa ter para voces se sentirem seguros diante de
+    uma fiscalizacao?
+
+
+==============================================================
+10. PONTOS PARA REVISAO (SUGESTOES DA EQUIPE TECNICA)
+==============================================================
+
+10.1 Beneficiarias: o texto original cita "empresas (startups)". A Lei do
+     Bem se aplica a empresas no regime de Lucro Real em geral, e nao apenas
+     a startups. Recomenda-se ajustar o termo para "empresas".
+
+10.2 Papel da IA: o texto diz que "a IA nao deve escolher, ela deve
+     direcionar". Na pratica, a IA propoe um resultado com justificativa e o
+     analista confirma, altera ou rejeita. Validar se esse e o comportamento
+     desejado.
+
+10.3 Criterios: confirmar se a lista de cinco criterios deve seguir a
+     formulacao do material do desafio (novidade, criatividade, incerteza
+     tecnologica, sistematicidade e transferibilidade/reprodutibilidade).
+
+10.4 Versao normativa: definir qual base legal e qual versao (com data de
+     vigencia) serao a referencia oficial da ferramenta.
+
+10.5 Confirmacao em cada decisao: validar se o numero de confirmacoes por
+     projeto (estimado entre 8 e 12) e aceitavel para o analista.
+
+10.6 Limiar de precedente: definir quantos casos independentes formam um
+     padrao candidato para o curador (sugestao inicial: 3).
+
+
+==============================================================
+11. MODULO DE DISCORDANCIAS E PRECEDENTES INTERNOS (FASE 1)
+==============================================================
+
+11.1 Objetivo
+Aproveitar as discordancias entre analistas e a IA como sinal de melhoria,
+sem alterar a decisao de nenhum caso e sem alterar regras automaticamente.
+
+11.2 Fluxo
+  a) O analista discorda de uma proposta da IA e informa:
+     - tipo de discordancia (ver 11.3);
+     - motivo em texto livre (obrigatorio, minimo de 20 caracteres).
+  b) O caso e encaminhado a um segundo analista, em revisao cega: ele ve o
+     caso e a evidencia, mas nao ve a decisao do primeiro analista.
+  c) Resultado da revisao:
+     - CONVERGENCIA CONTRA A IA: o segundo analista decide igual ao primeiro.
+       Registrado como precedente interno.
+     - DISCORDANCIA NAO CONFIRMADA: o segundo analista decide igual a IA.
+       Registrado, sem ajuste de caso.
+     - DIVERGENCIA ENTRE ANALISTAS: decisoes diferentes entre os dois.
+       Encaminhado ao responsavel da equipe.
+  d) Cada precedente e identificado por projeto, decision_id, criterio, tipo
+     e data.
+
+11.3 Tipos de discordancia
+  - EVIDENCIA_MAL_LIDA: a IA citou trecho que nao sustenta a afirmacao.
+  - EVIDENCIA_AUSENTE: a IA concluiu sem trecho suficiente.
+  - REGRA_MAL_APLICADA: a IA aplicou criterio de forma diferente da norma.
+  - DIVERGENCIA_DE_MERITO: os analistas leem o mesmo caso de forma diferente.
+
+11.4 Uso dos precedentes pelo motor
+  - Ao avaliar um criterio, o motor busca precedentes com o mesmo criterio e
+    tipo semelhante.
+  - O cartao exibe a secao "Precedentes internos (nao normativos)", com:
+    quantidade de casos, motivo resumido e link para o caso de origem.
+  - O precedente NAO altera a proposta, o status, a classificacao nem a
+    citacao normativa. Ele aparece como contexto para o analista.
+  - Precedentes nunca sao citados como fundamento legal.
+
+11.5 Padrao candidato e curador
+  - Quando o mesmo criterio e tipo acumulam pelo menos 3 casos independentes
+    com CONVERGENCIA CONTRA A IA (limiar a validar, ver 10.6), o padrao vai
+    para a fila do curador normativo.
+  - O curador decide se o padrao indica falha de regra, de prompt ou de
+    evidencia. Qualquer mudanca passa por nova versao da base.
+  - Nenhuma mudanca de regra ou de prompt ocorre automaticamente.
+
+11.6 Salvaguardas
+  - Revisao cega obrigatoria para o segundo analista.
+  - Dois analistas diferentes para cada caso que forma precedente.
+  - Analistas aparecem por pseudonimo nos dados de precedentes.
+  - Registro imutavel: cada acao gera evento, nada e editado.
+  - Precedente sempre rotulado como "interno, nao normativo".
+
+11.7 Metricas de acompanhamento
+  - Taxa de discordancia por criterio e por tipo.
+  - Taxa de convergencia contra a IA sobre o total de discordancias.
+  - Concordancia entre analistas (revisoes cegas).
+  - Numero de padroes encaminhados ao curador e numero de mudancas de regra
+    que resultaram deles.
+  - Alerta quando a convergencia contra a IA crescer de forma sustentada em
+    um criterio, o que pode indicar falha sistematica da IA.
+
+11.8 Evolucao (Fase 2, fora do hackathon)
+  - Classificador de ML que estima a probabilidade de discordancia por padrao
+    de caso, usado apenas para priorizar a fila do analista e destacar pontos
+    de atencao. Nao decide e nao altera classificacao.
+  - Requer volume de decisoes registradas antes de ser implantado.
+
+
+==============================================================
+12. HISTORICO DE VERSOES
+==============================================================
+
+v0.1 - Versao inicial a partir da descricao do problema, dos requisitos e do
+       fluxo ideal enviados pela equipe.
+v0.2 - Inclusao do modulo de discordancias e precedentes internos (secao 11),
+       com a Fase 1 aplicada. Inclusao do terceiro corpus na arquitetura
+       (7.1) e do limiar de precedente como ponto de revisao (10.6).

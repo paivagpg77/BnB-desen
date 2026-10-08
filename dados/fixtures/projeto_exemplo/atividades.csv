@@ -1,0 +1,4 @@
+atividade_id,descricao,tipo_declarado
+A01,Levantamento do mecanismo de idempotencia existente,rotina
+A02,Comparacao controlada entre identificador simples e composto,pesquisa
+A03,Ajuste de parametros de tempo limite do barramento,rotina
