@@ -8,7 +8,7 @@ confirmou, nao dos que o modelo sugeriu.
 
 from __future__ import annotations
 
-from src.decisoes.maquina_estados import Ponto, PontoDecisao, Status
+from src.decisoes.maquina_estados import Ponto, PontoDecisao, Status, reabrir_dependentes
 from src.documentos.modelos import Trecho
 from src.motor.linguagem import (
     NATUREZA_DA_ATIVIDADE,
@@ -230,6 +230,20 @@ def criar_pontos(analise: AnaliseConferida) -> list[PontoDecisao]:
 
     pontos.append(PontoDecisao(projeto_id=projeto_id, ponto=Ponto.D5))
     return pontos
+
+
+def rever_ponto(pontos: list[PontoDecisao], ponto: PontoDecisao, analista: str) -> list[PontoDecisao]:
+    """
+    O analista volta a um ponto ja decidido. O ponto e os que dependem dele sao
+    reabertos e a ultima proposta da IA volta a aguardar decisao. D5 fica sem
+    proposta: e derivado de novo quando os criterios estiverem decididos.
+    """
+    ponto.reabrir(causa=f"revisão pedida por {analista}")
+    reabertos = [ponto] + reabrir_dependentes(pontos, ponto)
+    for reaberto in reabertos:
+        if reaberto.ponto != Ponto.D5:
+            reaberto.propor(reaberto.valor_proposto, reaberto.justificativa)
+    return reabertos
 
 
 def estados_confirmados(pontos: list[PontoDecisao]) -> dict[Criterio, str]:

@@ -18,6 +18,8 @@ MOTIVO = "O protocolo compara duas versões com critério prévio."
 @pytest.fixture
 def tela(monkeypatch, tmp_path):
     monkeypatch.setenv("LEI_DO_BEM_PACOTE", str(PACOTE))
+    # Analises, logs e dossies do teste ficam fora da pasta saida/ do projeto.
+    monkeypatch.setenv("LEI_DO_BEM_SAIDA", str(tmp_path))
     monkeypatch.setattr(
         orquestrador, "papeis_padrao", lambda: orquestrador.Papeis(analista=ClienteFalso(proposta()))
     )
@@ -52,7 +54,7 @@ def test_decisao_exige_identificacao_do_analista(tela):
     assert any("identificação" in i.value for i in tela.info)
 
 
-def test_fluxo_completo_gera_o_dossie(tela):
+def test_fluxo_completo_gera_o_dossie(tela, tmp_path):
     tela.sidebar.text_input[0].set_value("ANL-01")
     _clicar(tela, "Analisar projeto")
     assert not tela.exception
@@ -78,7 +80,7 @@ def test_fluxo_completo_gera_o_dossie(tela):
     _decidir(tela)
 
     assert tela.subheader[-1].value == "Dossiê"
-    dossie = (RAIZ / "saida" / "dossie_PRJ99.md").read_text(encoding="utf-8")
+    dossie = (tmp_path / "dossie_PRJ99.md").read_text(encoding="utf-8")
     assert "Valor final: **Não elegível**" in dossie
     assert "- Analista: ANL-01" in dossie
 
@@ -103,3 +105,63 @@ def test_analise_salva_pode_ser_reaberta_sem_chamar_o_modelo(tela, monkeypatch):
     _clicar(tela, "Abrir análise salva")
     assert "D1" in tela.subheader[-1].value
     assert len(tela.radio) == 1
+
+
+def test_analise_salva_volta_com_as_decisoes_ja_registradas(tela):
+    tela.sidebar.text_input[0].set_value("ANL-01")
+    _clicar(tela, "Analisar projeto")
+    _decidir(tela)
+    _decidir(tela, "Alterar", MOTIVO)
+    assert "Criatividade" in tela.subheader[-1].value
+
+    # Outra sessao do navegador: nada do que esta na tela e reaproveitado.
+    outra = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=30).run()
+    outra.sidebar.text_input[0].set_value("ANL-01")
+    _clicar(outra, "Abrir análise salva")
+    assert "Criatividade" in outra.subheader[-1].value
+    assert any("ANL-01 alterou" in m.value for m in outra.markdown)
+
+
+def test_ponto_decidido_pode_ser_revisto(tela):
+    tela.sidebar.text_input[0].set_value("ANL-01")
+    _clicar(tela, "Analisar projeto")
+    _decidir(tela)
+    assert "Novidade" in tela.subheader[-1].value
+    _clicar(tela, "Rever este ponto")
+    assert "D1" in tela.subheader[-1].value
+    assert len(tela.radio) == 1
+
+
+def _abrir_revisao(app, analista):
+    app.sidebar.text_input[0].set_value(analista)
+    app.sidebar.selectbox[0].set_value("Discordâncias e revisão cega").run()
+    assert not app.exception
+
+
+def test_discordancia_passa_por_revisao_cega_de_outro_analista(tela):
+    tela.sidebar.text_input[0].set_value("ANL-01")
+    _clicar(tela, "Analisar projeto")
+    _decidir(tela)
+    _decidir(tela, "Alterar", MOTIVO)        # novidade: INDETERMINADA no lugar da proposta
+
+    # Quem abriu a discordancia nao a revisa.
+    _abrir_revisao(tela, "ANL-01")
+    assert {m.label: m.value for m in tela.metric}["Aguardando revisão cega"] == "1"
+    assert len(tela.radio) == 0
+
+    # O segundo analista ve a proposta da IA, nao a decisao do primeiro.
+    _abrir_revisao(tela, "ANL-02")
+    textos = " ".join(m.value for m in tela.markdown) + " ".join(c.value for c in tela.caption)
+    assert "Novidade" in textos
+    assert "NÃO DEMONSTRADA" in textos
+    assert MOTIVO not in textos and "INDETERMINADA" not in textos and "ANL-01" not in textos
+
+    _clicar(tela, "Registrar revisão")
+    assert any("20 caracteres" in e.value for e in tela.error)
+    tela.radio[0].set_value("Discordo da proposta da IA")
+    tela.text_area[0].set_value(MOTIVO)
+    _clicar(tela, "Registrar revisão")
+    metricas = {m.label: m.value for m in tela.metric}
+    assert metricas["Aguardando revisão cega"] == "0"
+    assert metricas["Confirmadas contra a IA"] == "1"
+    assert len(tela.radio) == 0
