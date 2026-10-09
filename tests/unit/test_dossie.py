@@ -60,7 +60,7 @@ def test_dossie_traz_regra_evidencia_analista_e_data():
     texto = gerar_dossie(
         "PRJ-TESTE", projeto_decidido(), TRECHOS, "Norma fictícia v1", ["Nada"], AGORA
     )
-    assert "Versao da norma utilizada: Norma fictícia v1" in texto
+    assert "Versão da norma utilizada: Norma fictícia v1" in texto
     assert "Emitido em: 08/10/2026 15:00" in texto
     assert "Analista: ANL-01" in texto
     assert "PRJ-TESTE-dossie#002" in texto
@@ -71,7 +71,7 @@ def test_dossie_traz_regra_evidencia_analista_e_data():
 def test_referencia_inexistente_aparece_como_problema_no_dossie():
     pontos = projeto_decidido(trecho_id="PRJ-TESTE-dossie#999")
     texto = gerar_dossie("PRJ-TESTE", pontos, TRECHOS, "v1", [], AGORA)
-    assert "nao encontrada na base" in texto
+    assert "não encontrada na base" in texto
     assert "PRJ-TESTE-dossie#999" in texto
 
 
@@ -84,7 +84,7 @@ def test_secao_de_nao_verificado_e_obrigatoria_no_texto():
         ["Entrevista tecnica nao conferida"],
         AGORA,
     )
-    assert "## O que nao foi verificado" in texto
+    assert "## O que não foi verificado" in texto
     assert "Entrevista tecnica nao conferida" in texto
 
 
@@ -94,7 +94,8 @@ def test_alteracao_aparece_com_motivo_e_analista():
     demais = projeto_decidido()[1:]
     pontos = [d1] + demais
     texto = gerar_dossie("PRJ-TESTE", pontos, TRECHOS, "v1", [], AGORA)
-    assert "Acao do analista: alterada" in texto
+    assert "ANL-02 alterou a proposta de “atende” para" in texto
+    assert f"Motivo registrado: {MOTIVO}" in texto
     assert "Analista: ANL-02" in texto
     assert MOTIVO in texto
 

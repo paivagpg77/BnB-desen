@@ -17,6 +17,7 @@ from src.decisoes.maquina_estados import (
     decisao_final_pronta,
 )
 from src.documentos.modelos import Trecho
+from src.motor.linguagem import frase_da_decisao
 
 
 class DossieIncompleto(ValueError):
@@ -26,6 +27,13 @@ class DossieIncompleto(ValueError):
 def _ultimo_evento_decisao(ponto: PontoDecisao) -> Optional[dict]:
     decisoes = [e for e in ponto.eventos if e["evento"] == "decisao_analista"]
     return decisoes[-1] if decisoes else None
+
+
+def _data(ts: Optional[str]) -> str:
+    try:
+        return datetime.fromisoformat(ts).strftime("%d/%m/%Y %H:%M UTC")
+    except (TypeError, ValueError):
+        return ts or ""
 
 
 def _ordenar(pontos: Iterable[PontoDecisao]) -> list[PontoDecisao]:
@@ -42,7 +50,7 @@ def _secao_referencias(
         trecho = trechos.get(trecho_id)
         linhas.append(f"- {afirmacao}")
         if trecho is None:
-            linhas.append(f"  - Referencia **nao encontrada na base**: `{trecho_id}`")
+            linhas.append(f"  - Referência **não encontrada na base**: `{trecho_id}`")
         else:
             resumo = " ".join(trecho.texto.split())[:200]
             linhas.append(f"  - Fonte: `{trecho_id}` ({trecho.secao})")
@@ -60,51 +68,62 @@ def gerar_dossie(
 ) -> str:
     if not decisao_final_pronta(pontos):
         pendentes = [p.decision_id for p in pontos if not p.decidido]
-        raise DossieIncompleto(f"Ha pontos sem decisao: {', '.join(pendentes)}.")
+        raise DossieIncompleto(f"Há pontos sem decisão: {', '.join(pendentes)}.")
 
     emitido = (emitido_em or datetime.now()).strftime("%d/%m/%Y %H:%M")
     linhas: list[str] = [
-        f"# Dossie de analise preliminar: {projeto_id}",
+        f"# Dossiê de análise preliminar: {projeto_id}",
         "",
-        f"- Versao da norma utilizada: {versao_norma}",
+        f"- Versão da norma utilizada: {versao_norma}",
         f"- Emitido em: {emitido}",
-        "- Natureza: classificacao preliminar. A decisao final e do analista.",
+        "- Natureza: classificação preliminar. A decisão final é do analista.",
         "",
-        "## Decisoes",
+        "## Decisões",
         "",
     ]
 
     analistas: set[str] = set()
     for ponto in _ordenar(pontos):
         decisao = _ultimo_evento_decisao(ponto)
-        titulo = ponto.decision_id
-        linhas += [f"### {titulo}", ""]
+        justificativa = ponto.justificativa or {}
+        linhas += [f"### {justificativa.get('titulo') or ponto.decision_id}", ""]
+        linhas.append(f"- Identificador: `{ponto.decision_id}`")
         linhas.append(f"- Proposta da IA: **{ponto.valor_proposto}**")
-        linhas.append(f"- Valor final: **{ponto.valor_final}**")
+        if justificativa.get("parecer"):
+            linhas.append(f"- Parecer da IA: {justificativa['parecer']}")
+        if justificativa.get("auditoria"):
+            linhas.append(f"- {justificativa['auditoria']['texto']}")
 
         if decisao:
             analista = decisao.get("analista", "")
             analistas.add(analista)
-            linhas.append(f"- Acao do analista: {decisao.get('acao')}")
+            frase = frase_da_decisao(
+                decisao.get("acao", ""),
+                analista,
+                ponto.valor_proposto,
+                ponto.valor_final,
+                decisao.get("motivo"),
+            )
+            linhas.append(f"- Decisão do analista: {frase}")
+            linhas.append(f"- Valor final: **{ponto.valor_final}**")
             linhas.append(f"- Analista: {analista}")
-            linhas.append(f"- Registrado em: {decisao.get('ts')}")
-            if decisao.get("motivo"):
-                linhas.append(f"- Motivo: {decisao['motivo']}")
+            linhas.append(f"- Registrado em: {_data(decisao.get('ts'))}")
+        else:
+            linhas.append(f"- Valor final: **{ponto.valor_final}**")
 
-        justificativa = ponto.justificativa or {}
         porque = justificativa.get("porque", [])
         if porque:
-            linhas += ["", "Porque (regra e evidencia):"]
+            linhas += ["", "Regra e evidência que sustentam:"]
             linhas += _secao_referencias(porque, trechos)
 
         como = justificativa.get("como", [])
         if como:
-            linhas += ["", "Como a analise foi feita:"]
+            linhas += ["", "Como a análise foi feita:"]
             linhas += [f"- {passo}" for passo in como]
 
         contrarias = justificativa.get("evidencias_contrarias", [])
         if contrarias:
-            linhas += ["", "Evidencias contrarias:"]
+            linhas += ["", "Evidências contrárias:"]
             linhas += [f"- {item}" for item in contrarias]
 
         lacunas = justificativa.get("lacunas", [])
@@ -114,11 +133,11 @@ def gerar_dossie(
 
         reaberturas = [e for e in ponto.eventos if e["evento"] == "ponto_reaberto"]
         if reaberturas:
-            linhas.append(f"- Reaberto {len(reaberturas)} vez(es) por dependencia.")
+            linhas.append(f"- Reaberto {len(reaberturas)} vez(es) por dependência.")
 
         linhas.append("")
 
-    linhas += ["## O que nao foi verificado", ""]
+    linhas += ["## O que não foi verificado", ""]
     linhas += [f"- {item}" for item in nao_verificado] or ["- Nada registrado."]
     linhas.append("")
 

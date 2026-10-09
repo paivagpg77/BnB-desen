@@ -1,0 +1,6 @@
+{
+  "projeto_id": "PRJ99",
+  "natureza": "registros fictícios criados pela equipe para teste",
+  "parametros": {"janela_s": 2},
+  "versoes_registradas": ["filtro-v1", "filtro-v2"]
+}

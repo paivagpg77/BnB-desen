@@ -1,0 +1,3 @@
+evento_id;data;versao;evento;estado;fonte
+PRJ99-CR01;2025-01-10;filtro-v1;Arquivamento dos registros desta versão;registrado;evidencias/medicoes.csv
+PRJ99-CR02;2025-03-02;filtro-v2;Arquivamento dos registros desta versão;registrado;evidencias/medicoes.csv

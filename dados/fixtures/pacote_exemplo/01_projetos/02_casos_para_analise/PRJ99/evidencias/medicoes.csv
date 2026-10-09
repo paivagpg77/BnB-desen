@@ -1,0 +1,11 @@
+registro_id;ensaio_id;versao;cenario;tipo;metrica;valor;numerador;denominador;peso;unidade
+PRJ99-S01-M001;PRJ99-S01;filtro-v1;C001;contador;leituras corretas;;18;20;;casos
+PRJ99-S01-M002;PRJ99-S01;filtro-v1;C002;contador;leituras corretas;;15;20;;casos
+PRJ99-S02-M001;PRJ99-S02;filtro-v2;C001;medicao;tempo de leitura;3;;;;ms
+PRJ99-S02-M002;PRJ99-S02;filtro-v2;C001;medicao;tempo de leitura;5;;;;ms
+PRJ99-S02-M003;PRJ99-S02;filtro-v2;C001;medicao;tempo de leitura;10;;;;ms
+PRJ99-S03-M001;PRJ99-S03;filtro-v2;C001;histograma;latência;40;;;12;ms
+PRJ99-S03-M002;PRJ99-S03;filtro-v2;C001;histograma;latência;70;;;6;ms
+PRJ99-S03-M003;PRJ99-S03;filtro-v2;C001;histograma;latência;120;;;2;ms
+PRJ99-S04-M001;PRJ99-S04;filtro-v2;C001;contador;fichas entregues (contagem de entrega, não desempenho);;7;7;;casos
+PRJ99-S05-M001;PRJ99-S05;filtro-v2;C001;medicao;indicador de estabilidade;0.82;;;;escala 0-1
