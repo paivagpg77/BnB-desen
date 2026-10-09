@@ -29,8 +29,10 @@ Decisões de stack: `docs/adr/0001-stack.md` e `docs/adr/0002-interface-streamli
 - [x] Interface Streamlit básica, do projeto ao dossiê
 - [x] Log das decisões em disco, somente de anexação: a análise salva volta com as decisões já registradas
 - [x] Rever um ponto já decidido: ele e os pontos que dependem dele voltam a aguardar decisão
+- [x] Fila de reserva por papel: provedor sem cota ou fora do ar é substituído pelo seguinte
 - [x] Discordâncias, revisão cega por um segundo analista e precedentes internos na interface
-- [ ] Calibração contra PRJ01 a PRJ20 (`scripts/calibrar.py`), aguardando chave do modelo
+- [x] Calibração contra PRJ01 a PRJ20 (`scripts/calibrar.py`): em 2026-10-09, 18 de 20 classificações e 95 de 100 critérios iguais ao parecer de referência
+- [x] Classificação em lote dos casos PRJ21 a PRJ40 e relatório com justificativas e fontes (`scripts/relatorio_classificacao.py`)
 - [ ] Busca semântica (embeddings): sem prioridade, o contexto por projeto é pequeno
 
 Os dados em `dados/fixtures/` são fictícios e servem só para teste. Não são legislação nem projetos reais.
@@ -74,6 +76,8 @@ pulados. Variável já definida no terminal tem prioridade sobre o `.env`.
 .venv/bin/streamlit run app.py              # interface do analista
 .venv/bin/python -m src.mcp_servidor        # servidor MCP (stdio)
 .venv/bin/python scripts/calibrar.py --limite 5   # regressão contra os históricos
+.venv/bin/python scripts/classificar_lote.py      # propostas para PRJ21 a PRJ40 (retoma de onde parou)
+.venv/bin/python scripts/relatorio_classificacao.py   # saida/classificacao_casos.md, sem chamar modelo
 ```
 
 Na interface: informe sua identificação, escolha o projeto e peça a análise.
@@ -110,6 +114,19 @@ o trabalho do outro e cada um receber só o recorte de que precisa:
 | Analista | Gemini | Avalia os cinco critérios e propõe a classificação | Regras, exemplos e evidências do projeto |
 | Confronto | Groq | Confronta a entrevista com os registros e classifica as atividades | Entrevista, ensaios, método, observações e atividades |
 | Auditor | OpenRouter | Diz se as fontes citadas sustentam cada justificativa | Justificativas do analista e o texto das fontes citadas |
+
+Cada papel tem uma fila de reserva com os outros provedores. Quando o titular
+fica sem cota (HTTP 429) ou recusa a chamada, a mesma pergunta vai para o
+seguinte, e a tela avisa o analista de quem respondeu no lugar. O modelo sem
+cota sai da fila por um minuto; o recusado, por dez. Para ter reservas dentro
+do mesmo provedor, liste os modelos separados por vírgula
+(`GEMINI_MODEL=gemini-3.8-flash,gemini-3.6-flash`).
+
+Qualquer modelo da fila pode fazer qualquer papel. O Groq gratuito aceita 8 mil
+tokens por minuto, menos que a mensagem do analista; quando é ele quem assume,
+recebe uma versão reduzida (só as evidências obrigatórias, sem orientações do
+desafio e sem pareceres de exemplo), e a tela avisa. Projeto cuja versão
+reduzida ainda não cabe é pulado por esse modelo.
 
 Analista e confronto rodam ao mesmo tempo; o auditor roda depois. Com menos de
 três chaves no `.env`, os papéis são redistribuídos; com uma só, o analista faz

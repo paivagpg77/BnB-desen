@@ -192,3 +192,11 @@ def test_pdf_ilegivel_conta_como_ausente(tmp_path):
     assert "dossie_projeto.pdf" in projeto.ausentes
     assert "dossie_projeto.pdf" not in projeto.textos
     assert resolver_referencia(projeto, "PRJ99-EV01").existe is False
+
+
+def test_caminho_relativo_do_pacote_vale_a_partir_da_raiz_do_projeto(monkeypatch, tmp_path):
+    from src.pacote.carregador import raiz_do_pacote
+
+    monkeypatch.setenv("LEI_DO_BEM_PACOTE", "dados/fixtures/pacote_exemplo")
+    monkeypatch.chdir(tmp_path)
+    assert (raiz_do_pacote() / "01_projetos").is_dir()

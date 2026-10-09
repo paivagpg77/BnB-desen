@@ -21,7 +21,7 @@ def tela(monkeypatch, tmp_path):
     # Analises, logs e dossies do teste ficam fora da pasta saida/ do projeto.
     monkeypatch.setenv("LEI_DO_BEM_SAIDA", str(tmp_path))
     monkeypatch.setattr(
-        orquestrador, "papeis_padrao", lambda: orquestrador.Papeis(analista=ClienteFalso(proposta()))
+        orquestrador, "papeis_padrao", lambda **_: orquestrador.Papeis(analista=ClienteFalso(proposta()))
     )
     app = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=30)
     app.run()
@@ -98,7 +98,7 @@ def test_analise_salva_pode_ser_reaberta_sem_chamar_o_modelo(tela, monkeypatch):
     tela.sidebar.text_input[0].set_value("ANL-01")
     _clicar(tela, "Analisar projeto")
 
-    def sem_modelo():
+    def sem_modelo(**_):
         raise AssertionError("o modelo não deveria ser chamado")
 
     monkeypatch.setattr(orquestrador, "papeis_padrao", sem_modelo)

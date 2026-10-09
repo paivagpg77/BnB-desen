@@ -147,12 +147,16 @@ def extrair_json(texto: str) -> dict:
 
 
 def _pedir_proposta(
-    cliente: ClienteLLM, sistema: str, mensagem: str
+    cliente: ClienteLLM, sistema: str, mensagem: str, reduzida: Optional[str] = None
 ) -> tuple[PropostaModelo, str]:
+    """`reduzida` e a mesma mensagem em versao menor, para modelo com limite de tamanho."""
     correcao = ""
     ultimo_erro: Exception | None = None
     for _ in range(TENTATIVAS):
-        resposta = cliente.completar(sistema, mensagem + correcao)
+        if reduzida is None:
+            resposta = cliente.completar(sistema, mensagem + correcao)
+        else:
+            resposta = cliente.completar(sistema, mensagem + correcao, reduzida=reduzida + correcao)
         try:
             return PropostaModelo.model_validate(extrair_json(resposta.texto)), resposta.modelo
         except (RespostaInvalida, ValidationError) as erro:
@@ -277,6 +281,7 @@ def preparar_analise(
     corpus: Optional[CorpusProjeto] = None,
     raiz: Optional[str | Path] = None,
     sem_depoimento: bool = False,
+    reduzida: bool = False,
 ) -> dict:
     """
     Tudo o que antecede a chamada ao modelo: recuperacao das evidencias, das
@@ -285,16 +290,19 @@ def preparar_analise(
 
     sem_depoimento tira a entrevista e as atividades do contexto: e usado
     quando outro modelo cuida do confronto e da natureza das atividades.
+
+    reduzida monta a versao para modelo com limite de tamanho: so as
+    evidencias obrigatorias, sem orientacoes do desafio e sem exemplos.
     """
     corpus = corpus or montar_corpus(projeto)
     regras = carregar_regras()
-    contexto = recuperar_contexto(corpus, CONSULTAS.values())
+    contexto = recuperar_contexto(corpus, [] if reduzida else CONSULTAS.values())
     if sem_depoimento:
         contexto = [
             t for t in contexto
             if corpus.natureza.get(t.trecho_id) not in (DEPOIMENTO, ATIVIDADE)
         ]
-    pacote = _raiz_disponivel(raiz)
+    pacote = None if reduzida else _raiz_disponivel(raiz)
     orientacoes = buscar_orientacoes(pacote, com_nucleo=False) if pacote else []
     # O proprio projeto nunca entra como exemplo de si mesmo.
     exemplos = exemplos_de_referencia(pacote, excluir=projeto.projeto_id) if pacote else []
