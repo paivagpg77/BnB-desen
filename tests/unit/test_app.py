@@ -84,6 +84,11 @@ def test_fluxo_completo_gera_o_dossie(tela, tmp_path):
     textos = " ".join(m.value for m in tela.markdown)
     assert "33 de 40 casos (82,5%)" in textos
     assert ":green-badge[Confere]" in textos
+    # O resumo da conferencia fica acima das abas, sem abrir a de verificacoes.
+    resumo = next(m.value for m in tela.markdown if m.value.startswith("Verificações automáticas:"))
+    assert ":green-badge[5 de 5 resultados conferem]" in resumo
+    assert ":gray-badge[2 fonte(s) do modelo descartada(s)]" in resumo
+    assert not any("Critérios que você confirmou" in m.value for m in tela.markdown)
 
     # Alterar sem motivo e recusado e o ponto continua pendente.
     _decidir(tela, "Alterar")
@@ -93,6 +98,11 @@ def test_fluxo_completo_gera_o_dossie(tela, tmp_path):
     for _ in range(8):          # D1, cinco criterios, D3 e D4
         _decidir(tela)
     assert "D5" in tela.subheader[-1].value
+    # Na classificacao, os criterios ja decididos aparecem junto do parecer.
+    textos = [m.value for m in tela.markdown]
+    confirmados = textos[textos.index("**Critérios que você confirmou**") + 1:][:5]
+    assert all(m.startswith("- ") and "**" in m for m in confirmados)
+    assert any(m.startswith("- Novidade: **") for m in confirmados)
     assert any("Não elegível, porque novidade, criatividade e incerteza" in m.value for m in tela.markdown)
     assert any("ANL-01 aceitou a proposta da IA." in m.value for m in tela.markdown)
     _decidir(tela)

@@ -405,14 +405,37 @@ def mostrar_modelos(analise: AnaliseConferida) -> None:
                 st.caption(papel.observacao)
 
 
-def alertas_das_verificacoes(sessao: dict, conferencias: list[dict]) -> int:
-    """Quantos avisos a aba de verificacoes traz; o analista e avisado fora dela."""
+def resumo_das_verificacoes(sessao: dict, conferencias: list[dict]) -> None:
+    """Uma linha acima das abas: o analista ve a conferencia sem abrir a aba dela."""
+    analise = sessao["analise"]
     resumo = apresentacao.resumo_da_conferencia(conferencias)
-    return (
-        bool(resumo["com_problema"])
-        + bool(sessao["corpus"].projeto.ausentes)
-        + len(sessao["analise"].avisos)
-    )
+    selos = []
+    if resumo["com_problema"]:
+        selos.append(f":red-badge[{resumo['com_problema']} resultado(s) não conferem com as medições]")
+    elif resumo["total"]:
+        selos.append(f":green-badge[{resumo['conferem']} de {resumo['total']} resultados conferem]")
+    if resumo["total"] and resumo["de_entrega"] == resumo["total"]:
+        selos.append(":orange-badge[só contagem de entrega: não medem o desempenho]")
+    descartadas = sum(len(fontes) for fontes in analise.fontes_descartadas.values())
+    if descartadas:
+        selos.append(f":gray-badge[{descartadas} fonte(s) do modelo descartada(s)]")
+    avisos = len(analise.avisos) + bool(sessao["corpus"].projeto.ausentes)
+    if avisos:
+        selos.append(f":orange-badge[{avisos} aviso(s)]")
+    if selos:
+        st.markdown("Verificações automáticas: " + " ".join(selos) + " · detalhes na aba Verificações")
+
+
+def mostrar_criterios_confirmados(pontos: list[PontoDecisao]) -> None:
+    """Em D5, as decisoes dos criterios de que a classificacao deriva."""
+    criterios = [p for p in pontos if p.ponto == Ponto.D2 and p.decidido]
+    if not criterios:
+        return
+    with st.container(border=True):
+        st.markdown("**Critérios que você confirmou**")
+        for p in criterios:
+            alterado = f" (a IA propôs {p.valor_proposto})" if p.status == Status.ALTERADA else ""
+            st.markdown(f"- {apresentacao.nome_do_ponto(p.criterio)}: **{p.valor_final}**{alterado}")
 
 
 def mostrar_verificacoes(sessao: dict, conferencias: list[dict]) -> None:
@@ -562,9 +585,7 @@ def main() -> None:
     st.progress(len(decididos) / len(pontos), text=f"{len(decididos)} de {len(pontos)} pontos decididos")
 
     conferencias = ferramentas.conferir_resultados(sessao["projeto_id"])
-    alertas = alertas_das_verificacoes(sessao, conferencias)
-    if alertas:
-        st.warning(f"{alertas} alerta(s) nas verificações automáticas. Veja a aba Verificações.")
+    resumo_das_verificacoes(sessao, conferencias)
 
     aba_decisao, aba_verificacoes, aba_decididos, aba_dossie = st.tabs(
         ["Decisão", "Verificações", f"Pontos decididos ({len(decididos)})", "Dossiê"],
@@ -620,6 +641,8 @@ def tela_decisao(sessao: dict, analista: str) -> None:
 
     st.markdown("**Parecer da IA**")
     mostrar_parecer(atual)
+    if atual.ponto == Ponto.D5:
+        mostrar_criterios_confirmados(pontos)
     st.markdown("**O que sustenta o parecer**")
     mostrar_fontes(sessao, atual.justificativa)
     mostrar_precedentes(atual)
