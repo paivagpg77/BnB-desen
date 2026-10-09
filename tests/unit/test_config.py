@@ -46,3 +46,23 @@ def test_carrega_uma_vez_por_processo(tmp_path, monkeypatch):
     carregar_env(tmp_path / "outro.env", forcar=True)
     assert carregar_env(arquivo) == []
     assert "LDB_TESTE_C" not in os.environ
+
+
+def test_releitura_atualiza_so_o_que_veio_do_arquivo(tmp_path, monkeypatch):
+    arquivo = tmp_path / ".env"
+    arquivo.write_text("LDB_TESTE_D=antigo\nLDB_TESTE_E=some\n", encoding="utf-8")
+    monkeypatch.delenv("LDB_TESTE_D", raising=False)
+    monkeypatch.delenv("LDB_TESTE_E", raising=False)
+    monkeypatch.setenv("LDB_TESTE_F", "do_terminal")
+    carregar_env(arquivo, forcar=True)
+
+    arquivo.write_text("LDB_TESTE_D=novo\nLDB_TESTE_F=do_arquivo\n", encoding="utf-8")
+    carregar_env(arquivo, forcar=True)
+    assert os.environ["LDB_TESTE_D"] == "novo"
+    assert "LDB_TESTE_E" not in os.environ
+    assert os.environ["LDB_TESTE_F"] == "do_terminal"
+
+    # Valor trocado depois, fora do arquivo, deixa de ser do arquivo.
+    monkeypatch.setenv("LDB_TESTE_D", "trocado_no_terminal")
+    carregar_env(arquivo, forcar=True)
+    assert os.environ["LDB_TESTE_D"] == "trocado_no_terminal"

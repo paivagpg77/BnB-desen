@@ -18,7 +18,7 @@ import unicodedata
 from pathlib import Path
 from typing import Optional
 
-from src.config import carregar_env
+from src.config import ARQUIVO_ENV, carregar_env
 from src.pacote.modelos import (
     Atividade,
     Entrada,
@@ -51,6 +51,9 @@ def raiz_do_pacote(caminho: Optional[str | Path] = None) -> Path:
             f"Informe a pasta do pacote ou defina {VARIAVEL_PACOTE} no arquivo .env."
         )
     raiz = Path(valor).expanduser()
+    if not raiz.is_absolute():
+        # Caminho relativo vale a partir da raiz do projeto, nao de onde o app foi iniciado.
+        raiz = ARQUIVO_ENV.parent / raiz
     if not (raiz / "01_projetos").is_dir():
         raise PacoteInvalido(f"Pasta 01_projetos nao encontrada em {raiz}.")
     return raiz

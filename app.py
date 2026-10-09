@@ -18,6 +18,7 @@ import streamlit as st
 from pydantic import ValidationError
 
 from src import apresentacao, ferramentas
+from src.config import carregar_env
 from src.decisoes import discordancias
 from src.decisoes.maquina_estados import (
     DecisaoInvalida,
@@ -42,7 +43,7 @@ from src.motor.fluxo import (
 from src.motor.linguagem import frase_da_decisao
 from src.motor.regras import CLASSIFICACOES, ESTADOS, Criterio
 from src.motor.schemas import AnaliseConferida
-from src.pacote.carregador import PacoteInvalido
+from src.pacote.carregador import PacoteInvalido, raiz_do_pacote
 from src.schemas.discordancia import StatusDiscordancia, TipoDiscordancia
 
 # LEI_DO_BEM_SAIDA troca a pasta onde ficam as analises, os logs e os dossies.
@@ -456,6 +457,8 @@ def main() -> None:
     st.title("Lei do Bem · apoio à análise preliminar")
     st.caption("A IA propõe; o analista decide. Nada avança sem a sua confirmação.")
 
+    # Mudanca no .env vale na proxima interacao, sem reiniciar o app.
+    carregar_env(forcar=True)
     try:
         projetos = ferramentas.listar_projetos()
     except PacoteInvalido as erro:
@@ -467,8 +470,8 @@ def main() -> None:
         tela = st.selectbox("Tela", [TELA_ANALISE, TELA_REVISAO])
         projeto_id = st.selectbox("Projeto para análise", [p["projeto_id"] for p in projetos])
         st.caption(
-            f"{len(projetos)} caso(s) para análise. Os projetos históricos já "
-            "classificados servem só de referência para o modelo."
+            f"{len(projetos)} caso(s) para análise no pacote `{raiz_do_pacote().name}`. "
+            "Os projetos históricos já classificados servem só de referência para o modelo."
         )
         if st.button("Analisar projeto", type="primary"):
             try:

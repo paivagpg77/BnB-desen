@@ -29,6 +29,7 @@ Decisões de stack: `docs/adr/0001-stack.md` e `docs/adr/0002-interface-streamli
 - [x] Interface Streamlit básica, do projeto ao dossiê
 - [x] Log das decisões em disco, somente de anexação: a análise salva volta com as decisões já registradas
 - [x] Rever um ponto já decidido: ele e os pontos que dependem dele voltam a aguardar decisão
+- [x] Fila de reserva por papel: provedor sem cota ou fora do ar é substituído pelo seguinte
 - [x] Discordâncias, revisão cega por um segundo analista e precedentes internos na interface
 - [ ] Calibração contra PRJ01 a PRJ20 (`scripts/calibrar.py`), aguardando chave do modelo
 - [ ] Busca semântica (embeddings): sem prioridade, o contexto por projeto é pequeno
@@ -110,6 +111,13 @@ o trabalho do outro e cada um receber só o recorte de que precisa:
 | Analista | Gemini | Avalia os cinco critérios e propõe a classificação | Regras, exemplos e evidências do projeto |
 | Confronto | Groq | Confronta a entrevista com os registros e classifica as atividades | Entrevista, ensaios, método, observações e atividades |
 | Auditor | OpenRouter | Diz se as fontes citadas sustentam cada justificativa | Justificativas do analista e o texto das fontes citadas |
+
+Cada papel tem uma fila de reserva com os outros provedores. Quando o titular
+fica sem cota (HTTP 429) ou recusa a chamada, a mesma pergunta vai para o
+seguinte, e a tela avisa o analista de quem respondeu no lugar. O modelo sem
+cota sai da fila por um minuto; o recusado, por dez. Para ter reservas dentro
+do mesmo provedor, liste os modelos separados por vírgula
+(`GEMINI_MODEL=gemini-3.8-flash,gemini-3.6-flash`).
 
 Analista e confronto rodam ao mesmo tempo; o auditor roda depois. Com menos de
 três chaves no `.env`, os papéis são redistribuídos; com uma só, o analista faz
