@@ -249,6 +249,8 @@ def test_com_um_so_modelo_o_analista_faz_tudo(corpus):
     [
         ({"GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"}, ("gemini", "groq", "openrouter")),
         ({"OPENROUTER_API_KEY"}, ("openrouter", None, None)),
+        # Sozinho, o provedor com limite de tamanho repete de papel em chamadas menores.
+        ({"GROQ_API_KEY"}, ("groq", "groq", "groq")),
         ({"GROQ_API_KEY", "OPENROUTER_API_KEY"}, ("openrouter", "groq", None)),
         ({"GEMINI_API_KEY", "OPENROUTER_API_KEY"}, ("gemini", "openrouter", None)),
     ],
@@ -322,8 +324,18 @@ def test_modelo_com_limite_de_tamanho_faz_o_papel_de_analista_com_mensagem_reduz
 
     sistema, mensagem = groq.chamadas[0]
     assert len(sistema) + len(mensagem) <= limite
+    assert sistema == reduzida["sistema"] != inteira["sistema"]
     assert "Nenhum trecho disponível neste ambiente." in mensagem      # sem orientações nem exemplos
     assert "evidencias/metodo.md#1" in mensagem                         # evidência obrigatória continua
     assert analise.orquestracao.papeis[0].provedor == "groq"
     assert analise.orientacoes == [] and analise.exemplos == []
     assert any("recebeu a mensagem reduzida" in a for a in analise.avisos)
+
+
+def test_rodada_pode_ser_restrita_a_alguns_provedores(monkeypatch):
+    for provedor in llm.PROVEDORES.values():
+        monkeypatch.setenv(provedor.variavel_chave, "k")
+    monkeypatch.setenv("LEI_DO_BEM_PROVEDORES", "groq")
+    papeis = papeis_padrao()
+    assert [c.provedor for c in papeis.analista._clientes] == ["groq"] * len(papeis.analista._clientes)
+    assert (papeis.confronto.provedor, papeis.auditor.provedor) == ("groq", "groq")

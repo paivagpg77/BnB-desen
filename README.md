@@ -125,8 +125,14 @@ do mesmo provedor, liste os modelos separados por vírgula
 Qualquer modelo da fila pode fazer qualquer papel. O Groq gratuito aceita 8 mil
 tokens por minuto, menos que a mensagem do analista; quando é ele quem assume,
 recebe uma versão reduzida (só as evidências obrigatórias, sem orientações do
-desafio e sem pareceres de exemplo), e a tela avisa. Projeto cuja versão
-reduzida ainda não cabe é pulado por esse modelo.
+desafio e sem pareceres de exemplo), com instruções mais curtas
+(`prompts/analise_projeto_reduzido.md`), e a tela avisa. Projeto cuja versão
+reduzida ainda não cabe é pulado por esse modelo. Sozinho, o Groq faz os três
+papéis em chamadas separadas, uma de cada vez, por causa da cota por minuto.
+
+Com o Groq sozinho (`LEI_DO_BEM_PROVEDORES=groq`), em 5 projetos históricos
+analisados por três modelos diferentes dele: 3 classificações iguais à referência e 19 de 25
+critérios. É a última reserva, não o caminho principal.
 
 Analista e confronto rodam ao mesmo tempo; o auditor roda depois. Com menos de
 três chaves no `.env`, os papéis são redistribuídos; com uma só, o analista faz

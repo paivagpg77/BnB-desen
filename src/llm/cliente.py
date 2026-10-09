@@ -77,6 +77,11 @@ class Provedor:
     # Maior mensagem (sistema + usuario, em caracteres) que a camada gratuita
     # aceita em uma chamada. None = sem limite pratico para este projeto.
     limite_caracteres: Optional[int] = None
+    # Pede a resposta em JSON valido quando a chamada nao traz esquema. Para
+    # modelo que, sem isso, as vezes devolve JSON quebrado.
+    modo_json: bool = False
+    # Parametros a mais no corpo de toda chamada a este provedor.
+    parametros: dict = field(default_factory=dict)
 
 
 # Os tres provedores tem camada gratuita. Os modelos padrao sao trocaveis pelo
@@ -97,8 +102,13 @@ GROQ = Provedor(
     "GROQ_API_KEY",
     "GROQ_MODEL",
     "openai/gpt-oss-120b",
-    # 8 mil tokens por minuto, somando entrada e resposta.
-    limite_caracteres=22000,
+    # 8 mil tokens por minuto, somando a entrada e o teto da resposta. Com 19 mil
+    # caracteres a entrada fica perto de 5 mil tokens e sobra espaco para a resposta.
+    limite_caracteres=19000,
+    modo_json=True,
+    # Sem isso o raciocinio do modelo consome o teto padrao de 2 mil tokens e a
+    # resposta chega cortada, com o JSON pela metade.
+    parametros={"reasoning_effort": "low", "max_completion_tokens": 2700},
 )
 PROVEDORES = {p.nome: p for p in (OPENROUTER, GEMINI, GROQ)}
 
@@ -152,6 +162,8 @@ class ClienteChat:
             )
         self.modelo = modelo or modelos_do_provedor(provedor)[0]
         self.limite_caracteres = provedor.limite_caracteres
+        self._modo_json = provedor.modo_json
+        self._parametros = dict(provedor.parametros)
         # O esforco de raciocinio e um parametro do OpenRouter.
         self.raciocinio = ""
         if provedor.nome == OPENROUTER.nome:
@@ -186,6 +198,7 @@ class ClienteChat:
                 {"role": "user", "content": usuario},
             ],
         }
+        corpo.update(self._parametros)
         if self.raciocinio:
             corpo["reasoning"] = {"effort": self.raciocinio}
         if esquema is not None:
@@ -193,6 +206,8 @@ class ClienteChat:
                 "type": "json_schema",
                 "json_schema": {"name": "resposta", "strict": True, "schema": esquema},
             }
+        elif self._modo_json:
+            corpo["response_format"] = {"type": "json_object"}
 
         status, bruto = self._enviar(
             {
@@ -301,8 +316,9 @@ class ClienteComReserva:
         sistema: str,
         usuario: str,
         esquema: Optional[dict] = None,
-        reduzida: Optional[str] = None,
+        reduzida: Optional[tuple[str, str]] = None,
     ) -> RespostaLLM:
+        """`reduzida` e o par (sistema, usuario) em versao menor, para modelo com limite."""
         ultimo_erro: Optional[ErroLLM] = None
         for rodada in range(self._rodadas_de_espera + 1):
             for cliente in self._clientes:
@@ -311,18 +327,18 @@ class ClienteComReserva:
                     continue
                 nome = f"{chave[0]} ({chave[1]})"
                 limite = getattr(cliente, "limite_caracteres", None)
-                mensagem = usuario
+                envio = (sistema, usuario)
                 if limite and len(sistema) + len(usuario) > limite:
-                    if reduzida is None or len(sistema) + len(reduzida) > limite:
+                    if reduzida is None or sum(map(len, reduzida)) > limite:
                         self.trocas.append(f"{nome} não aceita mensagem deste tamanho")
                         ultimo_erro = ultimo_erro or ErroLLM(
                             f"A mensagem passa do limite de tamanho de {nome}."
                         )
                         continue
-                    mensagem = reduzida
+                    envio = reduzida
                 try:
-                    resposta = cliente.completar(sistema, mensagem, esquema)
-                    return replace(resposta, mensagem_reduzida=mensagem is not usuario)
+                    resposta = cliente.completar(envio[0], envio[1], esquema)
+                    return replace(resposta, mensagem_reduzida=envio is reduzida)
                 except LimiteDeUso as erro:
                     self._fora[chave] = self._relogio() + ESPERA_APOS_LIMITE_S
                     self.trocas.append(f"{nome} está sem cota")
