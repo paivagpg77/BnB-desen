@@ -34,7 +34,8 @@ def _clicar(app, rotulo):
 
 
 def _decidir(app, acao="Aceitar", motivo=""):
-    app.radio[0].set_value(acao)
+    # A escolha fica fora do formulario: os campos de motivo so aparecem depois dela.
+    app.radio[0].set_value(acao).run()
     if motivo:
         app.text_area[-1].set_value(motivo)
     _clicar(app, "Registrar decisão")
@@ -52,6 +53,23 @@ def test_decisao_exige_identificacao_do_analista(tela):
     assert "D1" in tela.subheader[-1].value
     assert len(tela.radio) == 0
     assert any("identificação" in i.value for i in tela.info)
+
+
+def test_campos_de_discordancia_so_aparecem_para_alterar_ou_rejeitar(tela):
+    tela.sidebar.text_input[0].set_value("ANL-01")
+    _clicar(tela, "Analisar projeto")
+    assert len(tela.text_area) == 0
+    tela.radio[0].set_value("Rejeitar").run()
+    assert [t.label for t in tela.text_area] == ["Motivo (obrigatório, mínimo de 20 caracteres)"]
+    tela.radio[0].set_value("Alterar").run()
+    assert tela.text_area[0].label == "Valor final"
+
+
+def test_barra_lateral_da_revisao_nao_oferece_analise(tela):
+    assert any(b.label == "Analisar projeto" for b in tela.sidebar.button)
+    _abrir_revisao(tela, "ANL-01")
+    assert len(tela.sidebar.button) == 0
+    assert len(tela.sidebar.selectbox) == 1
 
 
 def test_fluxo_completo_gera_o_dossie(tela, tmp_path):
