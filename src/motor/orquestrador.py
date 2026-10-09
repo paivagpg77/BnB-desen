@@ -30,6 +30,7 @@ para o seguinte, e a troca aparece como aviso para o analista.
 
 from __future__ import annotations
 
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -66,6 +67,7 @@ ARQUIVO_PROMPT_AUDITORIA = PROMPTS / "auditoria_fontes.md"
 # abaixo disso e chegam inteiros ao auditor.
 LIMITE_TEXTO_DA_FONTE = 4000
 
+VARIAVEL_PROVEDORES = "LEI_DO_BEM_PROVEDORES"
 # Ordem de preferencia de provedor para cada papel.
 PREFERENCIAS = {
     "analista": ("gemini", "openrouter", "groq"),
@@ -97,10 +99,15 @@ def papeis_padrao(rodadas_de_espera: int = 0) -> Papeis:
     titular. Os demais provedores entram na fila de cada papel como reserva.
     `rodadas_de_espera` vale para lotes: com todos sem cota, espera a cota voltar.
     """
+    # LEI_DO_BEM_PROVEDORES restringe a rodada a alguns provedores (ex.: "groq").
+    permitidos = {
+        n.strip().lower() for n in os.environ.get(VARIAVEL_PROVEDORES, "").split(",") if n.strip()
+    }
     disponiveis = {
         nome: clientes
         for nome in llm.PROVEDORES
-        if (clientes := llm.clientes_do_provedor(nome))
+        if (not permitidos or nome in permitidos)
+        and (clientes := llm.clientes_do_provedor(nome))
     }
     if not disponiveis:
         raise ErroLLM(
@@ -113,6 +120,18 @@ def papeis_padrao(rodadas_de_espera: int = 0) -> Papeis:
         nome = next(
             (n for n in PREFERENCIAS[papel] if n in disponiveis and n not in usados), None
         )
+        if nome is None and len(disponiveis) == 1:
+            # Sem provedor livre, o analista faria tudo em uma mensagem so. Modelo
+            # com limite de tamanho nao aguenta essa mensagem: ele repete de papel,
+            # em chamadas separadas e menores.
+            nome = next(
+                (
+                    n
+                    for n in PREFERENCIAS[papel]
+                    if n in disponiveis and disponiveis[n][0].limite_caracteres
+                ),
+                None,
+            )
         if nome is None:
             return None
         usados.add(nome)
@@ -309,14 +328,17 @@ def analisar_com_orquestracao(
     )
 
     # Analista e confronto tem entradas independentes e rodam ao mesmo tempo.
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    # Quando o titular dos dois e o mesmo provedor, um espera o outro: juntos
+    # eles disputam a mesma cota por minuto e o maior sempre perde.
+    mesmo_provedor = confronto is not None and confronto.provedor == analista.provedor
+    with ThreadPoolExecutor(max_workers=1 if mesmo_provedor else 2) as executor:
         tarefa_analista = executor.submit(
             _tentar,
             _pedir_proposta,
             analista,
             preparo["sistema"],
             mensagem,
-            reduzido["mensagem"] + dispensa,
+            (reduzido["sistema"], reduzido["mensagem"] + dispensa),
         )
         tarefa_confronto = (
             executor.submit(_tentar, confrontar_depoimento, corpus, confronto)
@@ -337,8 +359,8 @@ def analisar_com_orquestracao(
         regras = preparo["regras"]
         avisos.append(
             f"O modelo analista ({analista.provedor}) tem limite de tamanho e recebeu a "
-            "mensagem reduzida: só as evidências obrigatórias, sem orientações do desafio "
-            "e sem pareceres de exemplo."
+            "mensagem reduzida: instruções curtas, só as evidências obrigatórias, sem "
+            "orientações do desafio e sem pareceres de exemplo."
         )
 
     # Se o modelo de um papel secundario falha, o do outro papel secundario

@@ -45,6 +45,9 @@ from src.rag.corpus import (
 from src.verificacao.recalculo import so_contagem_de_entrega
 
 ARQUIVO_PROMPT = Path(__file__).resolve().parents[2] / "prompts" / "analise_projeto.md"
+# Instrucoes e regras em versao curta, para modelo com limite de tamanho.
+ARQUIVO_PROMPT_REDUZIDO = ARQUIVO_PROMPT.with_name("analise_projeto_reduzido.md")
+SECOES_DE_CRITERIO = ("Novidade", "Criatividade", "Incerteza", "Sistematicidade", "Transferência")
 TENTATIVAS = 2
 
 # Uma consulta por criterio, para a busca trazer o que cada um precisa ler.
@@ -147,16 +150,21 @@ def extrair_json(texto: str) -> dict:
 
 
 def _pedir_proposta(
-    cliente: ClienteLLM, sistema: str, mensagem: str, reduzida: Optional[str] = None
+    cliente: ClienteLLM,
+    sistema: str,
+    mensagem: str,
+    reduzida: Optional[tuple[str, str]] = None,
 ) -> tuple[PropostaModelo, str]:
-    """`reduzida` e a mesma mensagem em versao menor, para modelo com limite de tamanho."""
+    """`reduzida` e o par (sistema, mensagem) em versao menor, para modelo com limite de tamanho."""
     correcao = ""
     ultimo_erro: Exception | None = None
     for _ in range(TENTATIVAS):
         if reduzida is None:
             resposta = cliente.completar(sistema, mensagem + correcao)
         else:
-            resposta = cliente.completar(sistema, mensagem + correcao, reduzida=reduzida + correcao)
+            resposta = cliente.completar(
+                sistema, mensagem + correcao, reduzida=(reduzida[0], reduzida[1] + correcao)
+            )
         try:
             return PropostaModelo.model_validate(extrair_json(resposta.texto)), resposta.modelo
         except (RespostaInvalida, ValidationError) as erro:
@@ -291,11 +299,14 @@ def preparar_analise(
     sem_depoimento tira a entrevista e as atividades do contexto: e usado
     quando outro modelo cuida do confronto e da natureza das atividades.
 
-    reduzida monta a versao para modelo com limite de tamanho: so as
-    evidencias obrigatorias, sem orientacoes do desafio e sem exemplos.
+    reduzida monta a versao para modelo com limite de tamanho: instrucoes
+    curtas, so as regras dos cinco criterios e as evidencias obrigatorias, sem
+    orientacoes do desafio e sem exemplos.
     """
     corpus = corpus or montar_corpus(projeto)
     regras = carregar_regras()
+    if reduzida:
+        regras = [t for t in regras if t.secao.startswith(SECOES_DE_CRITERIO)]
     contexto = recuperar_contexto(corpus, [] if reduzida else CONSULTAS.values())
     if sem_depoimento:
         contexto = [
@@ -312,7 +323,7 @@ def preparar_analise(
         "contexto": contexto,
         "orientacoes": orientacoes,
         "exemplos": exemplos,
-        "sistema": ARQUIVO_PROMPT.read_text(encoding="utf-8"),
+        "sistema": (ARQUIVO_PROMPT_REDUZIDO if reduzida else ARQUIVO_PROMPT).read_text(encoding="utf-8"),
         "mensagem": montar_mensagem(corpus, contexto, regras, orientacoes, exemplos),
     }
 

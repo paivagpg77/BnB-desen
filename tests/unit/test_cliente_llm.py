@@ -6,6 +6,8 @@ from src.llm.cliente import (
     ESPERA_APOS_LIMITE_S,
     GEMINI,
     MODELO_PADRAO,
+    GROQ,
+    ClienteChat,
     ClienteComReserva,
     ClienteOpenRouter,
     ErroDeConexao,
@@ -274,7 +276,7 @@ class _Limitado(_Falso):
 def test_modelo_com_limite_recebe_a_mensagem_reduzida():
     groq = _Limitado("groq", "ok")
     fila, _ = _fila(_Falso("gemini", LimiteDeUso("429")), groq)
-    resposta = fila.completar("s", "u" * 100, reduzida="curta")
+    resposta = fila.completar("s", "u" * 100, reduzida=("s2", "curta"))
     assert groq.recebido == "curta"
     assert resposta.mensagem_reduzida is True
 
@@ -282,17 +284,27 @@ def test_modelo_com_limite_recebe_a_mensagem_reduzida():
 def test_mensagem_que_cabe_vai_inteira():
     groq = _Limitado("groq", "ok")
     fila, _ = _fila(groq)
-    assert fila.completar("s", "cabe", reduzida="c").mensagem_reduzida is False
+    assert fila.completar("s", "cabe", reduzida=("s", "c")).mensagem_reduzida is False
     assert groq.recebido == "cabe"
 
 
 def test_sem_versao_que_caiba_o_modelo_e_pulado_sem_gastar_chamada():
     groq, gemini = _Limitado("groq", "ok"), _Falso("gemini", "ok")
     fila, _ = _fila(groq, gemini)
-    assert fila.completar("s", "u" * 100, reduzida="r" * 100).provedor == "gemini"
+    assert fila.completar("s", "u" * 100, reduzida=("s", "r" * 100)).provedor == "gemini"
     assert groq.chamadas == 0
     assert fila.trocas == ["groq (groq/modelo) não aceita mensagem deste tamanho"]
 
     so_groq, _ = _fila(_Limitado("groq", "ok"))
     with pytest.raises(ErroLLM, match="limite de tamanho"):
         so_groq.completar("s", "u" * 100)
+
+
+def test_groq_pede_json_raciocinio_curto_e_teto_de_resposta():
+    capturado = {}
+    cliente = ClienteChat(GROQ, chave="k", modelo="m", transporte=_transporte_fixo(200, RESPOSTA_OK, capturado))
+    cliente.completar("sistema", "usuario")
+    corpo = capturado["corpo"]
+    assert corpo["response_format"] == {"type": "json_object"}
+    assert corpo["reasoning_effort"] == "low"
+    assert corpo["max_completion_tokens"] + GROQ.limite_caracteres // 3.5 < 8200
