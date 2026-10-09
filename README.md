@@ -27,9 +27,9 @@ Decisão de stack: `docs/adr/0001-stack.md`
 - [x] Fluxo D1 a D5 ligado ao motor; a classificação é derivada do que o analista confirmou
 - [x] Servidor MCP com as ferramentas de leitura das evidências
 - [x] Interface Streamlit básica, do projeto ao dossiê
-- [ ] Calibração contra PRJ01 a PRJ20 (`scripts/calibrar.py`), aguardando chave do modelo
-- [ ] Busca semântica (embeddings): sem prioridade, o contexto por projeto é pequeno
-- [ ] Módulo de discordâncias e revisão cega na interface
+- [ ] Calibração contra PRJ01 a PRJ20 (`scripts/calibrar.py`): o script acumula as rodadas e retoma de onde parou; falta rodar, o que exige a chave do modelo e a massa do hackathon
+- [x] Busca semântica (embeddings locais) fundida com a lexical; opcional, ligada por `EMBEDDINGS_MODELO`
+- [x] Módulo de discordâncias e revisão cega na interface, com precedentes internos nos cartões e fila do curador
 
 Os dados em `dados/fixtures/` são fictícios e servem só para teste. Não são legislação nem projetos reais.
 
@@ -57,6 +57,8 @@ cp .env.example .env
 | `GROQ_API_KEY` | Chave do Groq (console.groq.com/keys) |
 | `OPENROUTER_MODEL` | Modelo usado; em branco, vale o gratuito padrão |
 | `LEI_DO_BEM_PACOTE` | Pasta onde o pacote do hackathon foi extraído (a que contém `01_projetos`) |
+| `EMBEDDINGS_MODELO` | Modelo de embeddings da busca semântica; em branco, vale só a busca lexical |
+| `LEI_DO_BEM_DISCORDANCIAS` | Arquivo do registro de discordâncias; em branco, `saida/discordancias/eventos.jsonl` |
 
 A massa é confidencial e **não entra no repositório**: extraia o pacote em uma
 pasta fora dele. Sem `LEI_DO_BEM_PACOTE`, os testes de `tests/integracao` são
@@ -74,6 +76,44 @@ pulados. Variável já definida no terminal tem prioridade sobre o `.env`.
 Na interface: informe sua identificação, escolha o projeto e peça a análise.
 Cada ponto (D1, os cinco critérios, D3, D4 e D5) mostra a proposta, as fontes e
 espera a sua decisão. O dossiê sai em `saida/` quando todos estão decididos.
+
+### Discordâncias, revisão cega e precedentes
+
+Alterar ou rejeitar uma proposta pede o tipo da discordância e a registra em
+`saida/discordancias/eventos.jsonl`, um log em que nada é editado. Na barra
+lateral, a área de trabalho **Revisão cega** mostra a um segundo analista a
+proposta da IA e as evidências do caso, sem a decisão, o motivo nem a
+identificação do primeiro; quem abriu a discordância não a revisa. O resultado é
+um de três: convergência contra a IA (vira precedente interno), discordância
+não confirmada ou divergência entre analistas (vai ao responsável da equipe).
+
+Os precedentes aparecem no cartão do mesmo critério, sempre rotulados como
+internos e não normativos: são contexto e não mudam proposta, estado nem
+classificação. A área **Discordâncias e precedentes** traz os números de
+acompanhamento e a fila do curador, formada quando o mesmo critério e tipo
+convergem contra a IA em três projetos distintos. Nenhuma regra ou prompt muda
+sozinho.
+
+### Busca semântica
+
+Desligada por padrão. Para ligar, instale o extra e preencha `EMBEDDINGS_MODELO`
+no `.env`:
+
+```bash
+.venv/bin/pip install -e ".[semantica]"
+```
+
+O modelo roda localmente (sentence-transformers), então o conteúdo dos projetos
+não sai da máquina. Os resultados da busca semântica e da lexical são fundidos
+pela posição de cada trecho; o núcleo obrigatório do contexto e o orçamento de
+tamanho não mudam.
+
+### Calibração
+
+Cada rodada de `scripts/calibrar.py` grava em `saida/calibracao.json` e a
+seguinte pula o que já foi avaliado com o prompt atual. Com modelo gratuito,
+repita `--limite 5` até o script informar que os vinte históricos foram
+avaliados; `--refazer` reavalia tudo.
 
 ### Três modelos, um papel cada
 
@@ -109,6 +149,8 @@ Ferramentas do servidor MCP, todas somente de leitura: `listar_projetos`,
 src/
   decisoes/maquina_estados.py   # estados, transicoes, dependencias, log
   schemas/discordancia.py       # discordancias, revisao cega, precedentes
+  discordancias/                # registro em log de anexacao, fila de revisao cega e precedentes
+  indexacao/                    # busca lexical (BM25) e semantica (embeddings), com fusao
   pacote/                       # carregador do pacote do desafio e pareceres historicos
   verificacao/recalculo.py      # resultados.csv conferido contra medicoes.csv
   verificacao/referencias.py    # toda fonte citada precisa existir no projeto
