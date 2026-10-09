@@ -5,23 +5,21 @@ Fluxo: escolher o projeto, pedir a análise, conferir as verificações
 automáticas e decidir cada ponto (D1 a D5). O dossiê só é gerado quando todos
 os pontos têm decisão do analista.
 
-Alterar ou rejeitar uma proposta abre uma discordância, que um segundo analista
-revisa às cegas na área "Revisão cega". As confirmadas aparecem nos cartões como
-precedentes internos, não normativos.
-
 Uso:
     .venv/bin/streamlit run app.py
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import streamlit as st
+from pydantic import ValidationError
 
 from src import apresentacao, ferramentas
+from src.decisoes import discordancias
 from src.decisoes.maquina_estados import (
-    MOTIVO_MIN_CARACTERES,
     DecisaoInvalida,
     Ponto,
     PontoDecisao,
@@ -29,8 +27,7 @@ from src.decisoes.maquina_estados import (
     decisao_final_pronta,
     proximo_ponto_pendente,
 )
-from src.discordancias import servico as discordancias
-from src.discordancias.repositorio import DiscordanciaInvalida, RepositorioDiscordancias
+from src.decisoes.registro import RegistroDecisoes
 from src.dossie.gerador import gerar_dossie
 from src.llm import cliente as llm
 from src.llm.cliente import ErroLLM
@@ -38,6 +35,7 @@ from src.motor import orquestrador
 from src.motor.fluxo import (
     criar_pontos,
     propor_classificacao,
+    rever_ponto,
     titulo_do_ponto,
     trechos_do_dossie,
 )
@@ -45,19 +43,19 @@ from src.motor.linguagem import frase_da_decisao
 from src.motor.regras import CLASSIFICACOES, ESTADOS, Criterio
 from src.motor.schemas import AnaliseConferida
 from src.pacote.carregador import PacoteInvalido
-from src.schemas.discordancia import (
-    RegistroDiscordancia,
-    ResultadoAnalista,
-    StatusDiscordancia,
-    TipoDiscordancia,
-    padroes_candidatos,
-)
+from src.schemas.discordancia import StatusDiscordancia, TipoDiscordancia
 
-SAIDA = Path(__file__).resolve().parent / "saida"
+# LEI_DO_BEM_SAIDA troca a pasta onde ficam as analises, os logs e os dossies.
+SAIDA = Path(os.environ.get("LEI_DO_BEM_SAIDA") or Path(__file__).resolve().parent / "saida")
 ANALISES = SAIDA / "analises"
+DECISOES = SAIDA / "decisoes"
 
-ANALISE, REVISAO, PAINEL = "Análise do projeto", "Revisão cega", "Discordâncias e precedentes"
-CONCORDO, DISCORDO = "Concordo com a proposta da IA", "Discordo da proposta da IA"
+TELA_ANALISE = "Análise do projeto"
+TELA_REVISAO = "Discordâncias e revisão cega"
+
+
+def repositorio() -> discordancias.RepositorioDiscordancias:
+    return discordancias.RepositorioDiscordancias(SAIDA / "discordancias.jsonl")
 
 
 def titulo(ponto: PontoDecisao) -> str:
@@ -89,13 +87,26 @@ def mostrar_parecer(ponto: PontoDecisao) -> None:
         st.markdown(f":{cor[auditoria['veredito']]}-badge[Auditoria] {auditoria['texto']}")
 
 
-def abrir_sessao(projeto_id: str, corpus, analise: AnaliseConferida) -> None:
+def abrir_sessao(projeto_id: str, corpus, analise: AnaliseConferida, nova: bool) -> None:
+    """Analise nova comeca um trecho do log; analise salva retoma as decisoes dele."""
+    registro = RegistroDecisoes(DECISOES, projeto_id)
+    pontos = None if nova else registro.retomar()
+    if pontos is None:
+        pontos = criar_pontos(analise)
+        registro.iniciar_analise(pontos)
     st.session_state["sessao"] = {
         "projeto_id": projeto_id,
         "corpus": corpus,
         "analise": analise,
-        "pontos": criar_pontos(analise),
+        "pontos": pontos,
     }
+
+
+def salvar_analise(analise: AnaliseConferida) -> None:
+    ANALISES.mkdir(parents=True, exist_ok=True)
+    (ANALISES / f"{analise.projeto_id}.json").write_text(
+        analise.model_dump_json(indent=2), encoding="utf-8"
+    )
 
 
 def analisar(projeto_id: str) -> None:
@@ -103,17 +114,16 @@ def analisar(projeto_id: str) -> None:
     analise = orquestrador.analisar_com_orquestracao(
         corpus.projeto, orquestrador.papeis_padrao(), corpus
     )
-    ANALISES.mkdir(parents=True, exist_ok=True)
-    (ANALISES / f"{projeto_id}.json").write_text(analise.model_dump_json(indent=2), encoding="utf-8")
-    abrir_sessao(projeto_id, corpus, analise)
+    salvar_analise(analise)
+    abrir_sessao(projeto_id, corpus, analise, nova=True)
 
 
 def abrir_analise_salva(projeto_id: str) -> None:
-    """Reabre a ultima proposta do modelo, sem nova chamada. As decisoes recomecam."""
+    """Reabre a ultima proposta do modelo e as decisoes ja registradas, sem nova chamada."""
     analise = AnaliseConferida.model_validate_json(
         (ANALISES / f"{projeto_id}.json").read_text(encoding="utf-8")
     )
-    abrir_sessao(projeto_id, ferramentas.corpus_do_projeto(projeto_id), analise)
+    abrir_sessao(projeto_id, ferramentas.corpus_do_projeto(projeto_id), analise, nova=False)
 
 
 def repropor(sessao: dict, ponto: PontoDecisao) -> None:
@@ -125,6 +135,7 @@ def repropor(sessao: dict, ponto: PontoDecisao) -> None:
         sessao["corpus"].projeto, orquestrador.papeis_padrao(), sessao["corpus"]
     )
     sessao["analise"] = nova
+    salvar_analise(nova)
     equivalente = next(p for p in criar_pontos(nova) if p.decision_id == ponto.decision_id)
     ponto.propor(equivalente.valor_proposto, equivalente.justificativa)
 
@@ -192,7 +203,7 @@ def formulario_decisao(sessao: dict, ponto: PontoDecisao, analista: str) -> None
         else:
             valor = st.text_area("Valor final, se alterar")
         tipo = st.selectbox(
-            "Tipo de discordância, se alterar ou rejeitar",
+            "Por que discorda, se alterar ou rejeitar",
             list(TipoDiscordancia),
             format_func=discordancias.ROTULO_TIPO.get,
         )
@@ -210,190 +221,119 @@ def formulario_decisao(sessao: dict, ponto: PontoDecisao, analista: str) -> None
         st.error(str(erro))
         return
     if acao != "Aceitar":
-        # Discordar da IA abre uma discordancia, que segue para a revisao cega.
-        repositorio = RepositorioDiscordancias()
-        repositorio.registrar(
+        # A discordancia fica na fila da revisao cega; nao muda a decisao deste caso.
+        analise = sessao["analise"]
+        repositorio().salvar(
             discordancias.abrir_discordancia(
-                ponto, tipo, sessao["analise"], repositorio.proximo_id()
+                ponto,
+                tipo,
+                versao_norma=f"base de regras {analise.versao_regras}",
+                versao_motor=f"prompt {analise.versao_prompt} / {analise.modelo}",
             )
         )
     st.rerun()
 
 
-def mostrar_discordancia(registros: list[RegistroDiscordancia], ponto: PontoDecisao) -> None:
-    """Situacao da discordancia que este analista abriu neste ponto, se houver."""
-    do_ponto = [
-        r for r in registros
-        if r.decision_id == ponto.decision_id and r.analista_origem_pseudonimo == ponto.analista
-    ]
-    if do_ponto and ponto.status in (Status.ALTERADA, Status.REJEITADA):
-        ultima = do_ponto[-1]
-        st.caption(
-            f"Discordância {ultima.discordancia_id} · "
-            f"{discordancias.ROTULO_STATUS[ultima.status]}"
-        )
-
-
-def mostrar_precedentes(registros: list[RegistroDiscordancia], ponto: PontoDecisao) -> None:
-    """Contexto para o analista. Nao altera a proposta, o estado nem a classificacao."""
+def mostrar_precedentes(ponto: PontoDecisao) -> None:
     resumos = discordancias.precedentes_do_criterio(
-        registros, discordancias.criterio_do_ponto(ponto)
+        repositorio().todas(), ponto.criterio or ponto.ponto.value, ponto.projeto_id
     )
     if not resumos:
         return
     total = sum(r.quantidade_casos for r in resumos)
-    with st.expander(f"Precedentes internos (não normativos): {total} caso(s)"):
-        st.caption(resumos[0].aviso)
+    with st.expander(f"Precedentes internos (não normativos) · {total} caso(s)"):
+        st.caption(
+            "Discordâncias confirmadas por dois analistas em outros projetos, neste mesmo "
+            "ponto. São contexto: não são fundamento legal e não alteram a proposta atual."
+        )
         for resumo in resumos:
-            st.markdown(
-                f"**{discordancias.ROTULO_TIPO[resumo.tipo]}** · {resumo.quantidade_casos} caso(s)"
-            )
+            st.markdown(f"**{discordancias.ROTULO_TIPO[resumo.tipo]}** · {resumo.quantidade_casos} caso(s)")
             for caso in resumo.casos:
-                decidido = f" Valor decidido: {caso.valor_resultante}." if caso.valor_resultante else ""
+                resultado = f" Valor confirmado: {caso.valor_resultante}." if caso.valor_resultante else ""
                 st.markdown(
-                    f"- [{caso.projeto_origem}](?projeto={caso.projeto_origem}) · "
-                    f"{caso.data:%d/%m/%Y} · {caso.motivo_resumido}{decidido}"
+                    f"- `{caso.projeto_origem}` em {caso.data:%d/%m/%Y}: {caso.motivo_resumido}{resultado}"
                 )
 
 
-def tela_revisao_cega(analista: str) -> None:
-    st.header("Revisão cega")
+def formulario_revisao(registro, analista: str) -> None:
+    ponto = RegistroDecisoes(DECISOES, registro.projeto_id).proposta_vigente(
+        registro.decision_id, registro.registrada_em
+    )
+    if ponto is None:
+        st.error(f"A proposta de {registro.decision_id} não está no log de decisões.")
+        return
+    st.markdown(f"**Projeto {registro.projeto_id} · {titulo(ponto)}**")
     st.caption(
-        "Você vê a proposta da IA e as evidências do caso. A decisão do primeiro "
-        "analista só aparece depois que a sua for registrada."
+        "Você vê a proposta da IA e as fontes. A decisão do primeiro analista "
+        "fica oculta até você registrar a sua."
     )
-    repositorio = RepositorioDiscordancias()
-    registros = repositorio.listar()
-
-    concluida = st.session_state.pop("revisao_registrada", None)
-    resolvida = next((r for r in registros if r.discordancia_id == concluida), None)
-    if resolvida:
-        primeira = (
-            f"alterou para {resolvida.valor_analista}"
-            if resolvida.valor_analista
-            else "rejeitou a proposta"
-        )
-        st.success(
-            f"Revisão de {resolvida.discordancia_id} registrada: "
-            f"{discordancias.ROTULO_STATUS[resolvida.status]}. "
-            f"{discordancias.DESFECHO[resolvida.status]}"
-        )
-        st.markdown(f"O primeiro analista {primeira}. Motivo registrado: {resolvida.motivo}")
-
-    if len(analista) < discordancias.IDENTIFICACAO_MIN_CARACTERES:
-        st.info("Informe sua identificação na barra lateral para revisar.")
-        return
-    fila = {r.discordancia_id: r for r in discordancias.fila_de_revisao(registros, analista)}
-    if not fila:
-        st.info("Nenhuma discordância aguardando a sua revisão.")
-        return
-
-    escolhida = st.selectbox(
-        "Caso para revisar",
-        list(fila),
-        format_func=lambda i: (
-            f"{i} · {fila[i].projeto_id} · {titulo(discordancias.ponto_da_discordancia(fila[i]))}"
-        ),
-    )
-    registro = fila[escolhida]
-    ponto = discordancias.ponto_da_discordancia(registro)
-    try:
-        corpus = ferramentas.corpus_do_projeto(registro.projeto_id)
-    except ferramentas.ProjetoDesconhecido as erro:
-        st.error(f"{erro} Sem as evidências do caso não há como revisar.")
-        return
-
-    st.subheader(f"{registro.projeto_id} · {titulo(ponto)}")
-    st.markdown("**Parecer da IA**")
     mostrar_parecer(ponto)
-    st.markdown("**O que sustenta o parecer**")
-    mostrar_fontes({"corpus": corpus}, ponto.justificativa)
-
+    mostrar_fontes({"corpus": ferramentas.corpus_do_projeto(registro.projeto_id)}, ponto.justificativa)
+    concordo = "Concordo com a proposta da IA"
     with st.form(f"revisao-{registro.discordancia_id}"):
-        escolha = st.radio("Sua decisão", [CONCORDO, DISCORDO], horizontal=True)
-        outros = [o for o in opcoes_de_valor(ponto) or [] if o != ponto.valor_proposto]
-        valor = st.selectbox("Valor que você daria, se discorda", outros) if outros else None
-        motivo = st.text_area(f"Motivo (obrigatório, mínimo de {MOTIVO_MIN_CARACTERES} caracteres)")
+        conclusao = st.radio("Sua conclusão", [concordo, "Discordo da proposta da IA"], horizontal=True)
+        motivo = st.text_area("Motivo (obrigatório, mínimo de 20 caracteres)")
         if not st.form_submit_button("Registrar revisão"):
             return
-    if len(motivo.strip()) < MOTIVO_MIN_CARACTERES:
-        st.error(f"O motivo precisa ter pelo menos {MOTIVO_MIN_CARACTERES} caracteres.")
-        return
     try:
-        repositorio.registrar_revisao(
-            registro.discordancia_id,
-            discordancias.nova_revisao(analista, escolha == CONCORDO, motivo, valor),
-        )
-    except (DiscordanciaInvalida, ValueError) as erro:
-        st.error(str(erro))
+        discordancias.revisar(registro, analista, conclusao == concordo, motivo)
+    except ValidationError:
+        st.error("O motivo precisa ter pelo menos 20 caracteres.")
         return
-    st.session_state["revisao_registrada"] = registro.discordancia_id
+    repositorio().salvar(registro)
     st.rerun()
 
 
-def tela_discordancias() -> None:
-    st.header("Discordâncias e precedentes internos")
-    st.caption(
-        "Precedentes internos são não normativos: não alteram proposta, estado nem "
-        "classificação. Nenhuma regra ou prompt muda automaticamente; padrões "
-        "recorrentes vão para o curador normativo."
-    )
-    registros = RepositorioDiscordancias().listar()
+def tela_revisao(analista: str) -> None:
+    st.header(TELA_REVISAO)
+    registros = repositorio().todas()
     numeros = discordancias.metricas(registros)
-    colunas = st.columns(5)
+    colunas = st.columns(4)
     colunas[0].metric("Discordâncias registradas", numeros["total"])
     colunas[1].metric("Aguardando revisão cega", numeros["aguardando_revisao"])
-    colunas[2].metric("Convergência contra a IA", numeros["convergentes"])
+    colunas[2].metric("Confirmadas contra a IA", numeros["confirmadas"])
     colunas[3].metric("Não confirmadas", numeros["nao_confirmadas"])
-    colunas[4].metric("Divergência entre analistas", numeros["divergentes"])
-    if numeros["revisadas"]:
-        st.caption(
-            f"Convergência contra a IA em {numeros['taxa_convergencia']:.0%} das discordâncias. "
-            f"O segundo analista decidiu como o primeiro em "
-            f"{numeros['concordancia_entre_analistas']:.0%} das revisões cegas."
-        )
 
-    st.subheader("Fila do curador normativo")
-    padroes = padroes_candidatos(registros)
-    if not padroes:
-        st.markdown("Nenhum padrão candidato até agora.")
-    for _, tipo, casos in padroes:
-        projetos = sorted({c.projeto_id for c in casos})
+    for criterio, tipo, projetos in discordancias.padroes_candidatos(registros):
         st.warning(
-            f"{titulo(discordancias.ponto_da_discordancia(casos[0]))} · "
-            f"{discordancias.ROTULO_TIPO[tipo]}: convergência contra a IA em "
-            f"{len(projetos)} projetos ({', '.join(projetos)}). Cabe ao curador dizer se "
-            "a falha é de regra, de prompt ou de evidência."
+            f"Padrão candidato para o curador normativo: {apresentacao.nome_do_ponto(criterio)} · "
+            f"{discordancias.ROTULO_TIPO[tipo]}, confirmado em {len(projetos)} projetos "
+            f"({', '.join(projetos)}). Nenhuma regra ou prompt muda automaticamente."
         )
 
-    st.subheader("Discordâncias revisadas")
-    # As que aguardam revisao ficam de fora: mostra-las quebraria a revisao cega.
-    revisadas = [r for r in registros if r.status != StatusDiscordancia.REGISTRADA]
-    if not revisadas:
-        st.markdown("Nenhuma discordância revisada até agora.")
-        return
-    st.dataframe(
-        [
-            {
-                "Discordância": r.discordancia_id,
-                "Projeto": r.projeto_id,
-                "Ponto": titulo(discordancias.ponto_da_discordancia(r)),
-                "Tipo": r.tipo.value,
-                "Proposta da IA": r.valor_ia,
-                "Primeiro analista": r.valor_analista or "rejeitou a proposta",
-                "Segundo analista": (
-                    "concordou com a IA"
-                    if r.revisao.decisao == ResultadoAnalista.ACEITA_IA
-                    else r.revisao.valor or "discordou da IA"
-                ),
-                "Situação": discordancias.ROTULO_STATUS[r.status],
-                "Registrada em": f"{r.registrada_em:%d/%m/%Y}",
-            }
-            for r in revisadas
-        ],
-        hide_index=True,
-        width="stretch",
-    )
+    st.subheader("Aguardando a sua revisão")
+    if not analista:
+        st.info("Informe sua identificação na barra lateral para revisar.")
+    else:
+        pendentes = discordancias.pendentes_para(registros, analista)
+        suas = numeros["aguardando_revisao"] - len(pendentes)
+        if suas:
+            st.caption(f"{suas} discordância(s) aberta(s) por você aguardam outro analista.")
+        if pendentes:
+            st.caption(f"{len(pendentes)} na fila. A mais antiga aparece primeiro.")
+            formulario_revisao(pendentes[0], analista)
+        else:
+            st.info("Nenhuma discordância de outro analista aguarda revisão.")
+
+    # So as ja revistas: listar as pendentes mostraria a decisao do primeiro analista.
+    revistas = [r for r in registros if r.status != StatusDiscordancia.REGISTRADA]
+    if revistas:
+        st.subheader("Discordâncias já revistas")
+        st.dataframe(
+            [
+                {
+                    "Projeto": r.projeto_id,
+                    "Ponto": apresentacao.nome_do_ponto(r.criterio),
+                    "Tipo": discordancias.ROTULO_TIPO[r.tipo],
+                    "Proposta da IA": r.valor_ia,
+                    "Primeiro analista": r.valor_analista or "rejeitou a proposta",
+                    "Resultado": discordancias.ROTULO_STATUS[r.status],
+                }
+                for r in revistas
+            ],
+            hide_index=True,
+            width="stretch",
+        )
 
 
 PAPEIS = {
@@ -524,29 +464,28 @@ def main() -> None:
 
     with st.sidebar:
         analista = st.text_input("Analista (identificação)").strip()
-        modo = st.selectbox("Área de trabalho", [ANALISE, REVISAO, PAINEL], key="modo")
-        if modo == ANALISE:
-            projeto_id = st.selectbox("Projeto para análise", [p["projeto_id"] for p in projetos])
+        tela = st.selectbox("Tela", [TELA_ANALISE, TELA_REVISAO])
+        projeto_id = st.selectbox("Projeto para análise", [p["projeto_id"] for p in projetos])
+        st.caption(
+            f"{len(projetos)} caso(s) para análise. Os projetos históricos já "
+            "classificados servem só de referência para o modelo."
+        )
+        if st.button("Analisar projeto", type="primary"):
+            try:
+                with st.spinner("Lendo as evidências e pedindo a proposta ao modelo..."):
+                    analisar(projeto_id)
+            except ErroLLM as erro:
+                st.error(str(erro))
+        if (ANALISES / f"{projeto_id}.json").is_file():
+            if st.button("Abrir análise salva"):
+                abrir_analise_salva(projeto_id)
             st.caption(
-                f"{len(projetos)} caso(s) para análise. Os projetos históricos já "
-                "classificados servem só de referência para o modelo."
+                "Reabre a última proposta do modelo para este projeto e as decisões "
+                "já registradas, sem nova chamada."
             )
-            if st.button("Analisar projeto", type="primary"):
-                try:
-                    with st.spinner("Lendo as evidências e pedindo a proposta ao modelo..."):
-                        analisar(projeto_id)
-                except ErroLLM as erro:
-                    st.error(str(erro))
-            if (ANALISES / f"{projeto_id}.json").is_file():
-                if st.button("Abrir análise salva"):
-                    abrir_analise_salva(projeto_id)
-                st.caption("Reabre a última proposta do modelo para este projeto, sem nova chamada.")
 
-    if modo == REVISAO:
-        tela_revisao_cega(analista)
-        return
-    if modo == PAINEL:
-        tela_discordancias()
+    if tela == TELA_REVISAO:
+        tela_revisao(analista)
         return
 
     # Link direto para uma analise salva: .../?projeto=PRJ21
@@ -568,16 +507,17 @@ def main() -> None:
     mostrar_verificacoes(sessao)
 
     pontos = sessao["pontos"]
-    registros = RepositorioDiscordancias().listar()
     decididos = [p for p in pontos if p.decidido]
     if decididos:
         st.subheader("Pontos decididos")
         for p in decididos:
             with st.expander(f"{titulo(p)} · {p.valor_final}"):
                 st.markdown(f"**Decisão:** {frase_decisao(p)}")
-                mostrar_discordancia(registros, p)
                 mostrar_parecer(p)
                 mostrar_fontes(sessao, p.justificativa)
+                if analista and st.button("Rever este ponto", key=f"rever-{p.decision_id}"):
+                    rever_ponto(pontos, p, analista)
+                    st.rerun()
 
     if decisao_final_pronta(pontos):
         mostrar_dossie(sessao)
@@ -592,7 +532,6 @@ def main() -> None:
 
     if atual.status == Status.REJEITADA:
         st.warning(f"Você rejeitou a proposta deste ponto. Motivo registrado: {atual.motivo}")
-        mostrar_discordancia(registros, atual)
         if st.button("Pedir nova proposta"):
             try:
                 with st.spinner("Pedindo nova proposta ao modelo..."):
@@ -607,12 +546,9 @@ def main() -> None:
     mostrar_parecer(atual)
     st.markdown("**O que sustenta o parecer**")
     mostrar_fontes(sessao, atual.justificativa)
-    mostrar_precedentes(registros, atual)
-    if len(analista) < discordancias.IDENTIFICACAO_MIN_CARACTERES:
-        st.info(
-            "Informe sua identificação na barra lateral, com pelo menos "
-            f"{discordancias.IDENTIFICACAO_MIN_CARACTERES} caracteres, para registrar a decisão."
-        )
+    mostrar_precedentes(atual)
+    if not analista:
+        st.info("Informe sua identificação na barra lateral para registrar a decisão.")
         return
     formulario_decisao(sessao, atual, analista)
 

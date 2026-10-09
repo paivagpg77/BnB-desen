@@ -4,7 +4,7 @@ Ferramenta de apoio ao analista de P&D do Banco do Nordeste (BNB), desenvolvida 
 Hackathon STS 2026. **A IA propõe; o analista decide.**
 
 Base de referência: `docs/base_projeto_v0.2.txt`
-Decisão de stack: `docs/adr/0001-stack.md`
+Decisões de stack: `docs/adr/0001-stack.md` e `docs/adr/0002-interface-streamlit.md`
 
 ## Estado atual (Fase 1, em andamento)
 
@@ -27,9 +27,11 @@ Decisão de stack: `docs/adr/0001-stack.md`
 - [x] Fluxo D1 a D5 ligado ao motor; a classificação é derivada do que o analista confirmou
 - [x] Servidor MCP com as ferramentas de leitura das evidências
 - [x] Interface Streamlit básica, do projeto ao dossiê
+- [x] Log das decisões em disco, somente de anexação: a análise salva volta com as decisões já registradas
+- [x] Rever um ponto já decidido: ele e os pontos que dependem dele voltam a aguardar decisão
+- [x] Discordâncias, revisão cega por um segundo analista e precedentes internos na interface
 - [ ] Calibração contra PRJ01 a PRJ20 (`scripts/calibrar.py`): o script acumula as rodadas e retoma de onde parou; falta rodar, o que exige a chave do modelo e a massa do hackathon
 - [x] Busca semântica (embeddings locais) fundida com a lexical; opcional, ligada por `EMBEDDINGS_MODELO`
-- [x] Módulo de discordâncias e revisão cega na interface, com precedentes internos nos cartões e fila do curador
 
 Os dados em `dados/fixtures/` são fictícios e servem só para teste. Não são legislação nem projetos reais.
 
@@ -40,6 +42,8 @@ python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest
 ```
+
+No Windows, troque `.venv/bin/` por `.venv\Scripts\` em todos os comandos.
 
 ## Massa do hackathon e modelo de linguagem
 
@@ -58,7 +62,7 @@ cp .env.example .env
 | `OPENROUTER_MODEL` | Modelo usado; em branco, vale o gratuito padrão |
 | `LEI_DO_BEM_PACOTE` | Pasta onde o pacote do hackathon foi extraído (a que contém `01_projetos`) |
 | `EMBEDDINGS_MODELO` | Modelo de embeddings da busca semântica; em branco, vale só a busca lexical |
-| `LEI_DO_BEM_DISCORDANCIAS` | Arquivo do registro de discordâncias; em branco, `saida/discordancias/eventos.jsonl` |
+| `LEI_DO_BEM_SAIDA` | Pasta das análises, dos logs e dos dossiês; em branco, vale `saida/` |
 
 A massa é confidencial e **não entra no repositório**: extraia o pacote em uma
 pasta fora dele. Sem `LEI_DO_BEM_PACOTE`, os testes de `tests/integracao` são
@@ -77,22 +81,25 @@ Na interface: informe sua identificação, escolha o projeto e peça a análise.
 Cada ponto (D1, os cinco critérios, D3, D4 e D5) mostra a proposta, as fontes e
 espera a sua decisão. O dossiê sai em `saida/` quando todos estão decididos.
 
-### Discordâncias, revisão cega e precedentes
+Cada proposta, decisão e reabertura é gravada em `saida/decisoes/<projeto>.jsonl`,
+um evento por linha, sem reescrita. "Abrir análise salva" retoma do ponto em que
+o analista parou. Em um ponto já decidido, "Rever este ponto" reabre esse ponto
+e os que dependem dele.
 
-Alterar ou rejeitar uma proposta pede o tipo da discordância e a registra em
-`saida/discordancias/eventos.jsonl`, um log em que nada é editado. Na barra
-lateral, a área de trabalho **Revisão cega** mostra a um segundo analista a
-proposta da IA e as evidências do caso, sem a decisão, o motivo nem a
-identificação do primeiro; quem abriu a discordância não a revisa. O resultado é
-um de três: convergência contra a IA (vira precedente interno), discordância
-não confirmada ou divergência entre analistas (vai ao responsável da equipe).
+### Discordâncias e revisão cega
 
-Os precedentes aparecem no cartão do mesmo critério, sempre rotulados como
-internos e não normativos: são contexto e não mudam proposta, estado nem
-classificação. A área **Discordâncias e precedentes** traz os números de
-acompanhamento e a fila do curador, formada quando o mesmo critério e tipo
-convergem contra a IA em três projetos distintos. Nenhuma regra ou prompt muda
-sozinho.
+Alterar ou rejeitar uma proposta abre uma discordância, com o tipo e o motivo
+informados pelo analista. Na tela "Discordâncias e revisão cega" (seletor na
+barra lateral), um segundo analista vê a proposta da IA e as fontes, sem a
+decisão do primeiro, e diz se concorda com a IA. Quem abriu a discordância não
+a revisa.
+
+Discordância confirmada pelos dois vira precedente interno e aparece no cartão
+do mesmo ponto em outros projetos, como contexto. O precedente não altera
+proposta, estado nem classificação e não é fundamento legal. Com o mesmo ponto
+e o mesmo tipo confirmados em três projetos, a tela avisa que o padrão deve ir
+ao curador normativo; nenhuma regra ou prompt muda sozinho. Os analistas
+aparecem por pseudônimo em `saida/discordancias.jsonl`.
 
 ### Busca semântica
 
@@ -148,8 +155,9 @@ Ferramentas do servidor MCP, todas somente de leitura: `listar_projetos`,
 ```
 src/
   decisoes/maquina_estados.py   # estados, transicoes, dependencias, log
+  decisoes/registro.py          # log das decisoes em disco e retomada da analise
+  decisoes/discordancias.py     # discordancias, revisao cega, precedentes e padroes candidatos
   schemas/discordancia.py       # discordancias, revisao cega, precedentes
-  discordancias/                # registro em log de anexacao, fila de revisao cega e precedentes
   indexacao/                    # busca lexical (BM25) e semantica (embeddings), com fusao
   pacote/                       # carregador do pacote do desafio e pareceres historicos
   verificacao/recalculo.py      # resultados.csv conferido contra medicoes.csv

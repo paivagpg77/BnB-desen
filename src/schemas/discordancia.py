@@ -17,8 +17,6 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from src.texto.tokens import remover_acentos
-
 
 class TipoDiscordancia(str, Enum):
     EVIDENCIA_MAL_LIDA = "EVIDENCIA_MAL_LIDA"
@@ -47,14 +45,6 @@ class ClassificacaoPreliminar(str, Enum):
     NAO_ELEGIVEL = "Nao elegivel"
     EVIDENCIA_INSUFICIENTE = "Evidencia insuficiente"
 
-    @classmethod
-    def de_rotulo(cls, rotulo: Optional[str]) -> Optional["ClassificacaoPreliminar"]:
-        """Classe a partir do rotulo acentuado da interface; None se nao for uma classe."""
-        try:
-            return cls(remover_acentos(rotulo or "").strip())
-        except ValueError:
-            return None
-
 
 MOTIVO_MIN_CARACTERES = 20
 
@@ -64,9 +54,6 @@ class RevisaoCega(BaseModel):
 
     analista_pseudonimo: str = Field(min_length=3)
     decisao: ResultadoAnalista
-    # Valor que o revisor daria ao ponto, quando discorda da IA e o ponto tem
-    # vocabulario fechado. Permite distinguir convergencia de divergencia.
-    valor: Optional[str] = None
     motivo: str = Field(min_length=MOTIVO_MIN_CARACTERES)
     registrada_em: datetime
 
@@ -84,13 +71,11 @@ class RegistroDiscordancia(BaseModel):
 
     analista_origem_pseudonimo: str = Field(min_length=3)
     motivo: str = Field(min_length=MOTIVO_MIN_CARACTERES)
-    # Valor do ponto: o que a IA propos e o que o analista decidiu (None quando
-    # ele rejeitou sem dar outro valor). Em D2 e o estado do criterio.
-    valor_ia: str = ""
+    # Valor do ponto em disputa: estado do criterio, classe ou texto livre.
+    # O analista que rejeita a proposta nao informa valor.
+    valor_ia: Optional[str] = None
     valor_analista: Optional[str] = None
-    # Proposta da IA como foi apresentada (parecer e fontes), para a revisao cega.
-    justificativa_ia: dict = Field(default_factory=dict)
-    # So em D5, onde o valor do ponto e a classificacao do projeto.
+    # Preenchidas so quando o ponto e a classificacao final (D5).
     classificacao_ia: Optional[ClassificacaoPreliminar] = None
     classificacao_analista: Optional[ClassificacaoPreliminar] = None
     registrada_em: datetime
@@ -114,11 +99,7 @@ class RegistroDiscordancia(BaseModel):
         self.revisao = revisao
 
         if revisao.decisao == ResultadoAnalista.DISCORDA_IA:
-            if revisao.valor and self.valor_analista and revisao.valor != self.valor_analista:
-                # Os dois discordam da IA, mas nao entre si: vai ao responsavel da equipe.
-                self.status = StatusDiscordancia.DIVERGENCIA_ENTRE_ANALISTAS
-            else:
-                self.status = StatusDiscordancia.CONVERGENCIA_CONTRA_IA
+            self.status = StatusDiscordancia.CONVERGENCIA_CONTRA_IA
         else:
             # Segundo analista concordou com a IA: discordancia nao confirmada.
             self.status = StatusDiscordancia.NAO_CONFIRMADA
@@ -152,7 +133,7 @@ class ResumoPrecedentes(BaseModel):
     quantidade_casos: int = Field(ge=0)
     casos: list[PrecedenteInterno] = Field(default_factory=list)
     aviso: str = (
-        "Precedentes internos. Não são fundamento legal e não alteram "
+        "Precedentes internos. Nao sao fundamento legal e nao alteram "
         "a proposta atual."
     )
 
@@ -167,22 +148,6 @@ def e_padrao_candidato(registros: list[RegistroDiscordancia]) -> bool:
     """
     convergentes = [
         r for r in registros
-        if r.status == StatusDiscordancia.CONVERGENCIA_CONTRA_IA
-    ]
+        if r.status == StatusDiscordancia.CONVERGENCIA_CONTRA_IA    ]
     projetos_distintos = {r.projeto_id for r in convergentes}
     return len(projetos_distintos) >= LIMIAR_PADRAO_CANDIDATO
-
-
-def padroes_candidatos(
-    registros: list[RegistroDiscordancia],
-) -> list[tuple[str, TipoDiscordancia, list[RegistroDiscordancia]]]:
-    """Grupos de mesmo criterio e tipo que atingiram o limiar: a fila do curador."""
-    grupos: dict[tuple[str, TipoDiscordancia], list[RegistroDiscordancia]] = {}
-    for r in registros:
-        if r.status == StatusDiscordancia.CONVERGENCIA_CONTRA_IA:
-            grupos.setdefault((r.criterio, r.tipo), []).append(r)
-    return [
-        (criterio, tipo, casos)
-        for (criterio, tipo), casos in grupos.items()
-        if e_padrao_candidato(casos)
-    ]

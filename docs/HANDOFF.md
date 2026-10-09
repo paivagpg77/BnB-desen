@@ -2,6 +2,10 @@
 
 Documento para quem entra no desenvolvimento. Resume o que foi decidido, o que existe, o que falta e o que não deve ser feito.
 
+> **Atualização de 2026-10-09:** as seções 3, 4, 5 e 8 descrevem o projeto no dia
+> do handoff e estão superadas. O estado atual, a estrutura e os comandos estão no
+> `README.md`. As regras da seção 2 e os cuidados da seção 7 continuam valendo.
+
 Data do handoff: 2026-10-08
 Contexto: Hackathon STS 2026, desafio do Banco do Nordeste (BNB).
 
