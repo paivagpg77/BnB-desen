@@ -201,20 +201,27 @@ def opcoes_de_valor(ponto: PontoDecisao) -> list[str] | None:
 
 
 def formulario_decisao(sessao: dict, ponto: PontoDecisao, analista: str) -> None:
+    # Fora do formulario: a escolha define quais campos aparecem.
+    chave_da_acao = f"acao-{ponto.decision_id}"
+    acao = st.radio(
+        "Sua decisão", ["Aceitar", "Alterar", "Rejeitar"], horizontal=True, key=chave_da_acao
+    )
+    valor = tipo = motivo = None
     with st.form(f"decisao-{ponto.decision_id}"):
-        acao = st.radio("Sua decisão", ["Aceitar", "Alterar", "Rejeitar"], horizontal=True)
-        opcoes = opcoes_de_valor(ponto)
-        if opcoes:
-            valor = st.selectbox("Valor final, se alterar", opcoes)
-        else:
-            valor = st.text_area("Valor final, se alterar")
-        tipo = st.selectbox(
-            "Por que discorda, se alterar ou rejeitar",
-            list(TipoDiscordancia),
-            format_func=discordancias.ROTULO_TIPO.get,
-        )
-        motivo = st.text_area("Motivo (obrigatório para alterar ou rejeitar, mínimo de 20 caracteres)")
-        if not st.form_submit_button("Registrar decisão"):
+        if acao == "Alterar":
+            opcoes = opcoes_de_valor(ponto)
+            if opcoes:
+                valor = st.selectbox("Valor final", opcoes)
+            else:
+                valor = st.text_area("Valor final")
+        if acao != "Aceitar":
+            tipo = st.selectbox(
+                "Por que discorda da proposta",
+                list(TipoDiscordancia),
+                format_func=discordancias.ROTULO_TIPO.get,
+            )
+            motivo = st.text_area("Motivo (obrigatório, mínimo de 20 caracteres)")
+        if not st.form_submit_button("Registrar decisão", type="primary"):
             return
     try:
         if acao == "Aceitar":
@@ -237,6 +244,8 @@ def formulario_decisao(sessao: dict, ponto: PontoDecisao, analista: str) -> None
                 versao_motor=f"prompt {analise.versao_prompt} / {analise.modelo}",
             )
         )
+    # Se o ponto voltar a aguardar decisao, a escolha recomeca em Aceitar.
+    del st.session_state[chave_da_acao]
     st.rerun()
 
 
@@ -396,14 +405,46 @@ def mostrar_modelos(analise: AnaliseConferida) -> None:
                 st.caption(papel.observacao)
 
 
-def mostrar_verificacoes(sessao: dict) -> None:
+def resumo_das_verificacoes(sessao: dict, conferencias: list[dict]) -> None:
+    """Uma linha acima das abas: o analista ve a conferencia sem abrir a aba dela."""
+    analise = sessao["analise"]
+    resumo = apresentacao.resumo_da_conferencia(conferencias)
+    selos = []
+    if resumo["com_problema"]:
+        selos.append(f":red-badge[{resumo['com_problema']} resultado(s) não conferem com as medições]")
+    elif resumo["total"]:
+        selos.append(f":green-badge[{resumo['conferem']} de {resumo['total']} resultados conferem]")
+    if resumo["total"] and resumo["de_entrega"] == resumo["total"]:
+        selos.append(":orange-badge[só contagem de entrega: não medem o desempenho]")
+    descartadas = sum(len(fontes) for fontes in analise.fontes_descartadas.values())
+    if descartadas:
+        selos.append(f":gray-badge[{descartadas} fonte(s) do modelo descartada(s)]")
+    avisos = len(analise.avisos) + bool(sessao["corpus"].projeto.ausentes)
+    if avisos:
+        selos.append(f":orange-badge[{avisos} aviso(s)]")
+    if selos:
+        st.markdown("Verificações automáticas: " + " ".join(selos) + " · detalhes na aba Verificações")
+
+
+def mostrar_criterios_confirmados(pontos: list[PontoDecisao]) -> None:
+    """Em D5, as decisoes dos criterios de que a classificacao deriva."""
+    criterios = [p for p in pontos if p.ponto == Ponto.D2 and p.decidido]
+    if not criterios:
+        return
+    with st.container(border=True):
+        st.markdown("**Critérios que você confirmou**")
+        for p in criterios:
+            alterado = f" (a IA propôs {p.valor_proposto})" if p.status == Status.ALTERADA else ""
+            st.markdown(f"- {apresentacao.nome_do_ponto(p.criterio)}: **{p.valor_final}**{alterado}")
+
+
+def mostrar_verificacoes(sessao: dict, conferencias: list[dict]) -> None:
     projeto = sessao["corpus"].projeto
     analise = sessao["analise"]
-    conferencias = ferramentas.conferir_resultados(sessao["projeto_id"])
     resumo = apresentacao.resumo_da_conferencia(conferencias)
     descartadas = apresentacao.fontes_descartadas(sessao["corpus"], analise.fontes_descartadas)
 
-    st.subheader("Verificações automáticas (sem IA)")
+    st.caption("Conferências feitas por regra, sem IA.")
     colunas = st.columns(4)
     colunas[0].metric("Resultados conferidos", resumo["total"])
     colunas[1].metric("Conferem com as medições", resumo["conferem"])
@@ -498,24 +539,26 @@ def main() -> None:
     with st.sidebar:
         analista = st.text_input("Analista (identificação)").strip()
         tela = st.selectbox("Tela", [TELA_ANALISE, TELA_REVISAO])
-        projeto_id = st.selectbox("Projeto para análise", [p["projeto_id"] for p in projetos])
-        st.caption(
-            f"{len(projetos)} caso(s) para análise no pacote `{raiz_do_pacote().name}`. "
-            "Os projetos históricos já classificados servem só de referência para o modelo."
-        )
-        if st.button("Analisar projeto", type="primary"):
-            try:
-                with st.spinner("Lendo as evidências e pedindo a proposta ao modelo..."):
-                    analisar(projeto_id)
-            except ErroLLM as erro:
-                st.error(str(erro))
-        if (ANALISES / f"{projeto_id}.json").is_file():
-            if st.button("Abrir análise salva"):
-                abrir_analise_salva(projeto_id)
+        # Escolher e analisar projeto so faz sentido na tela de analise.
+        if tela == TELA_ANALISE:
+            projeto_id = st.selectbox("Projeto para análise", [p["projeto_id"] for p in projetos])
             st.caption(
-                "Reabre a última proposta do modelo para este projeto e as decisões "
-                "já registradas, sem nova chamada."
+                f"{len(projetos)} caso(s) para análise no pacote `{raiz_do_pacote().name}`. "
+                "Os projetos históricos já classificados servem só de referência para o modelo."
             )
+            if st.button("Analisar projeto", type="primary"):
+                try:
+                    with st.spinner("Lendo as evidências e pedindo a proposta ao modelo..."):
+                        analisar(projeto_id)
+                except ErroLLM as erro:
+                    st.error(str(erro))
+            if (ANALISES / f"{projeto_id}.json").is_file():
+                if st.button("Abrir análise salva"):
+                    abrir_analise_salva(projeto_id)
+                st.caption(
+                    "Reabre a última proposta do modelo para este projeto e as decisões "
+                    "já registradas, sem nova chamada."
+                )
 
     if tela == TELA_REVISAO:
         tela_revisao(analista)
@@ -536,13 +579,30 @@ def main() -> None:
         return
 
     st.header(f"Projeto {sessao['projeto_id']}")
-    mostrar_modelos(sessao["analise"])
-    mostrar_verificacoes(sessao)
-
     pontos = sessao["pontos"]
     decididos = [p for p in pontos if p.decidido]
-    if decididos:
-        st.subheader("Pontos decididos")
+    pronto = decisao_final_pronta(pontos)
+    st.progress(len(decididos) / len(pontos), text=f"{len(decididos)} de {len(pontos)} pontos decididos")
+
+    conferencias = ferramentas.conferir_resultados(sessao["projeto_id"])
+    resumo_das_verificacoes(sessao, conferencias)
+
+    aba_decisao, aba_verificacoes, aba_decididos, aba_dossie = st.tabs(
+        ["Decisão", "Verificações", f"Pontos decididos ({len(decididos)})", "Dossiê"],
+        default="Dossiê" if pronto else None,
+    )
+    with aba_decisao:
+        if pronto:
+            st.success("Todos os pontos estão decididos. O dossiê está na aba Dossiê.")
+        else:
+            tela_decisao(sessao, analista)
+    with aba_verificacoes:
+        mostrar_verificacoes(sessao, conferencias)
+        with st.expander("Como a proposta foi gerada"):
+            mostrar_modelos(sessao["analise"])
+    with aba_decididos:
+        if not decididos:
+            st.info("Nenhum ponto decidido ainda.")
         for p in decididos:
             with st.expander(f"{titulo(p)} · {p.valor_final}"):
                 st.markdown(f"**Decisão:** {frase_decisao(p)}")
@@ -551,17 +611,21 @@ def main() -> None:
                 if analista and st.button("Rever este ponto", key=f"rever-{p.decision_id}"):
                     rever_ponto(pontos, p, analista)
                     st.rerun()
+    with aba_dossie:
+        if pronto:
+            mostrar_dossie(sessao)
+        else:
+            st.info("O dossiê é gerado quando todos os pontos estiverem decididos.")
 
-    if decisao_final_pronta(pontos):
-        mostrar_dossie(sessao)
-        return
 
+def tela_decisao(sessao: dict, analista: str) -> None:
+    """O ponto que aguarda o analista: parecer, fontes, precedentes e a decisao."""
+    pontos = sessao["pontos"]
     atual = proximo_ponto_pendente(pontos)
     if atual.ponto == Ponto.D5 and atual.status in (Status.PROPOSTA, Status.REABERTA):
         propor_classificacao(pontos, sessao["analise"])
 
     st.subheader(f"Aguardando sua decisão: {titulo(atual)}")
-    st.progress(len(decididos) / len(pontos), text=f"{len(decididos)} de {len(pontos)} pontos decididos")
 
     if atual.status == Status.REJEITADA:
         st.warning(f"Você rejeitou a proposta deste ponto. Motivo registrado: {atual.motivo}")
@@ -577,6 +641,8 @@ def main() -> None:
 
     st.markdown("**Parecer da IA**")
     mostrar_parecer(atual)
+    if atual.ponto == Ponto.D5:
+        mostrar_criterios_confirmados(pontos)
     st.markdown("**O que sustenta o parecer**")
     mostrar_fontes(sessao, atual.justificativa)
     mostrar_precedentes(atual)
