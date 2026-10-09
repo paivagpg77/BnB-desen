@@ -173,8 +173,10 @@ O que o modelo pode e não pode fazer:
 4. A classificação exibida vem da regra sobre os estados confirmados pelo analista, não da sugestão do modelo.
 
 Ferramentas do servidor MCP, todas somente de leitura: `listar_projetos`,
-`resumo_do_projeto`, `buscar_evidencias`, `ler_referencia`,
-`conferir_resultados`, `buscar_regras` e `parecer_historico`.
+`listar_historicos`, `resumo_do_projeto`, `buscar_evidencias`, `ler_referencia`,
+`conferir_resultados`, `buscar_regras`, `buscar_orientacoes`,
+`buscar_pareceres_historicos` e `parecer_historico`. Projeto que não existe no
+pacote volta como erro com a mensagem, sem derrubar o servidor.
 
 ## Estrutura
 

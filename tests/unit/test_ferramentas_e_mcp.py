@@ -90,3 +90,14 @@ def test_servidor_mcp_expoe_as_ferramentas_e_responde():
     )
     assert resultado.is_error is False
     assert resultado.structured_content["result"][0]["trecho_id"] == "evidencias/metodo.md#2"
+
+
+def test_servidor_mcp_diz_a_quem_consulta_que_o_projeto_nao_existe():
+    pytest.importorskip("mcp")
+    from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
+
+    from src.mcp_servidor import servidor
+
+    with pytest.raises(ToolError, match="Projeto PRJ77 não existe no pacote") as erro:
+        asyncio.run(servidor.call_tool("resumo_do_projeto", {"projeto_id": "PRJ77"}))
+    assert not isinstance(erro.value, UnexpectedToolError)
