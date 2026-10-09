@@ -7,8 +7,9 @@ ou nome de arquivo. Assim a fonte citada pelo modelo e a mesma que o analista
 encontra na pasta do projeto.
 
 O contexto enviado ao modelo tem duas partes: trechos obrigatorios (o nucleo
-que toda analise precisa ler) e trechos recuperados por busca lexical, ate o
-limite de tamanho. O modelo so pode citar o que esta no contexto.
+que toda analise precisa ler) e trechos recuperados por busca, ate o limite de
+tamanho. A busca e lexical; com um modelo de embeddings configurado, ela e
+fundida com a busca semantica. O modelo so pode citar o que esta no contexto.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import Iterable, Optional
 
 from src.documentos.modelos import TIPO_NORMA, TIPO_PROJETO, Trecho
 from src.indexacao.bm25 import IndiceBM25
+from src.indexacao.vetorial import Embeddings, IndiceVetorial, fundir
 from src.ingestao.chunking import dividir
 from src.ingestao.leitores import ler_documento
 from src.pacote.modelos import Medicao, ProjetoCarregado, Resultado
@@ -61,6 +63,15 @@ class CorpusProjeto:
     natureza: dict[str, str] = field(default_factory=dict)
     conferencias: list[ConferenciaResultado] = field(default_factory=list)
     indice: Optional[IndiceBM25] = None
+    # So existe quando ha modelo de embeddings configurado.
+    indice_vetorial: Optional[IndiceVetorial] = None
+
+    def buscar(self, consulta: str, k: int = 5) -> list[tuple[float, Trecho]]:
+        """Busca lexical, fundida com a semantica quando ha indice vetorial."""
+        lexical = self.indice.buscar(consulta, k=k)
+        if self.indice_vetorial is None:
+            return lexical
+        return fundir([lexical, self.indice_vetorial.buscar(consulta, k=k)], k=k)
 
     def normalizar(self, referencia: str) -> Optional[str]:
         """
@@ -126,7 +137,9 @@ def _texto_ensaio(
     return "\n".join(linhas)
 
 
-def montar_corpus(projeto: ProjetoCarregado) -> CorpusProjeto:
+def montar_corpus(
+    projeto: ProjetoCarregado, embeddings: Optional[Embeddings] = None
+) -> CorpusProjeto:
     corpus = CorpusProjeto(projeto=projeto, conferencias=conferir_projeto(projeto))
 
     def adicionar(trecho_id: str, secao: str, texto: str, natureza: str) -> None:
@@ -268,6 +281,8 @@ def montar_corpus(projeto: ProjetoCarregado) -> CorpusProjeto:
     )
 
     corpus.indice = IndiceBM25(corpus.trechos.values())
+    if embeddings is not None:
+        corpus.indice_vetorial = IndiceVetorial(corpus.trechos.values(), embeddings)
     return corpus
 
 
@@ -300,7 +315,7 @@ def recuperar_contexto(
 
     candidatos: dict[str, float] = {}
     for consulta in consultas:
-        for pontuacao, trecho in corpus.indice.buscar(consulta, k=k):
+        for pontuacao, trecho in corpus.buscar(consulta, k=k):
             if trecho.trecho_id not in escolhidos:
                 candidatos[trecho.trecho_id] = max(
                     pontuacao, candidatos.get(trecho.trecho_id, 0.0)

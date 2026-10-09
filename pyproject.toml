@@ -16,6 +16,9 @@ api = [
 app = [
     "streamlit>=1.40",
 ]
+semantica = [
+    "sentence-transformers>=3.0",
+]
 mcp = [
     "mcp>=2.0",
 ]

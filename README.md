@@ -33,7 +33,7 @@ Decisões de stack: `docs/adr/0001-stack.md` e `docs/adr/0002-interface-streamli
 - [x] Discordâncias, revisão cega por um segundo analista e precedentes internos na interface
 - [x] Calibração contra PRJ01 a PRJ20 (`scripts/calibrar.py`): em 2026-10-09, 18 de 20 classificações e 95 de 100 critérios iguais ao parecer de referência
 - [x] Classificação em lote dos casos PRJ21 a PRJ40 e relatório com justificativas e fontes (`scripts/relatorio_classificacao.py`)
-- [ ] Busca semântica (embeddings): sem prioridade, o contexto por projeto é pequeno
+- [x] Busca semântica (embeddings locais) fundida com a lexical; opcional, ligada por `EMBEDDINGS_MODELO`
 
 Os dados em `dados/fixtures/` são fictícios e servem só para teste. Não são legislação nem projetos reais.
 
@@ -63,6 +63,7 @@ cp .env.example .env
 | `GROQ_API_KEY` | Chave do Groq (console.groq.com/keys) |
 | `OPENROUTER_MODEL` | Modelo usado; em branco, vale o gratuito padrão |
 | `LEI_DO_BEM_PACOTE` | Pasta onde o pacote do hackathon foi extraído (a que contém `01_projetos`) |
+| `EMBEDDINGS_MODELO` | Modelo de embeddings da busca semântica; em branco, vale só a busca lexical |
 | `LEI_DO_BEM_SAIDA` | Pasta das análises, dos logs e dos dossiês; em branco, vale `saida/` |
 
 A massa é confidencial e **não entra no repositório**: extraia o pacote em uma
@@ -95,7 +96,10 @@ Alterar ou rejeitar uma proposta abre uma discordância, com o tipo e o motivo
 informados pelo analista. Na tela "Discordâncias e revisão cega" (seletor na
 barra lateral), um segundo analista vê a proposta da IA e as fontes, sem a
 decisão do primeiro, e diz se concorda com a IA. Quem abriu a discordância não
-a revisa.
+a revisa. Ao discordar, ele pode informar o valor que daria ao ponto: se for
+diferente do valor do primeiro analista, o caso vira divergência entre analistas
+e vai ao responsável da equipe, sem virar precedente. A tela mostra também a
+taxa de convergência contra a IA e a concordância entre analistas.
 
 Discordância confirmada pelos dois vira precedente interno e aparece no cartão
 do mesmo ponto em outros projetos, como contexto. O precedente não altera
@@ -103,6 +107,27 @@ proposta, estado nem classificação e não é fundamento legal. Com o mesmo pon
 e o mesmo tipo confirmados em três projetos, a tela avisa que o padrão deve ir
 ao curador normativo; nenhuma regra ou prompt muda sozinho. Os analistas
 aparecem por pseudônimo em `saida/discordancias.jsonl`.
+
+### Busca semântica
+
+Desligada por padrão. Para ligar, instale o extra e preencha `EMBEDDINGS_MODELO`
+no `.env`:
+
+```bash
+.venv/bin/pip install -e ".[semantica]"
+```
+
+O modelo roda localmente (sentence-transformers), então o conteúdo dos projetos
+não sai da máquina. Os resultados da busca semântica e da lexical são fundidos
+pela posição de cada trecho; o núcleo obrigatório do contexto e o orçamento de
+tamanho não mudam.
+
+### Calibração
+
+Cada rodada de `scripts/calibrar.py` grava em `saida/calibracao.json` e a
+seguinte pula o que já foi avaliado com o prompt atual. Com modelo gratuito,
+repita `--limite 5` até o script informar que os vinte históricos foram
+avaliados; `--refazer` reavalia tudo.
 
 ### Três modelos, um papel cada
 
@@ -153,6 +178,7 @@ src/
   decisoes/registro.py          # log das decisoes em disco e retomada da analise
   decisoes/discordancias.py     # discordancias, revisao cega, precedentes e padroes candidatos
   schemas/discordancia.py       # discordancias, revisao cega, precedentes
+  indexacao/                    # busca lexical (BM25) e semantica (embeddings), com fusao
   pacote/                       # carregador do pacote do desafio e pareceres historicos
   verificacao/recalculo.py      # resultados.csv conferido contra medicoes.csv
   verificacao/referencias.py    # toda fonte citada precisa existir no projeto

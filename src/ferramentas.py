@@ -18,6 +18,7 @@ from src.rag.corpus import CorpusProjeto, carregar_regras, montar_corpus
 from src.verificacao.recalculo import so_contagem_de_entrega
 from src.verificacao.referencias import resolver_referencia
 from src.indexacao.bm25 import IndiceBM25
+from src.indexacao.vetorial import embeddings_padrao
 
 
 class ProjetoDesconhecido(ValueError):
@@ -29,7 +30,7 @@ def _corpus(raiz: str, projeto_id: str) -> CorpusProjeto:
     pastas = localizar_projetos(raiz)
     if projeto_id not in pastas:
         raise ProjetoDesconhecido(f"Projeto {projeto_id} não existe no pacote.")
-    return montar_corpus(carregar_projeto(pastas[projeto_id]))
+    return montar_corpus(carregar_projeto(pastas[projeto_id]), embeddings_padrao())
 
 
 def corpus_do_projeto(projeto_id: str) -> CorpusProjeto:
@@ -87,7 +88,10 @@ def resumo_do_projeto(projeto_id: str) -> dict:
 
 
 def buscar_evidencias(projeto_id: str, consulta: str, k: int = 5) -> list[dict]:
-    """Busca lexical nos trechos do projeto. Devolve identificador, natureza e texto."""
+    """
+    Busca nos trechos do projeto: lexical, fundida com a semântica quando há
+    modelo de embeddings configurado. Devolve identificador, natureza e texto.
+    """
     corpus = corpus_do_projeto(projeto_id)
     return [
         {
@@ -97,7 +101,7 @@ def buscar_evidencias(projeto_id: str, consulta: str, k: int = 5) -> list[dict]:
             "pontuacao": round(pontuacao, 3),
             "texto": trecho.texto,
         }
-        for pontuacao, trecho in corpus.indice.buscar(consulta, k=max(1, min(k, 20)))
+        for pontuacao, trecho in corpus.buscar(consulta, k=max(1, min(k, 20)))
     ]
 
 

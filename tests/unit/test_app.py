@@ -164,4 +164,29 @@ def test_discordancia_passa_por_revisao_cega_de_outro_analista(tela):
     metricas = {m.label: m.value for m in tela.metric}
     assert metricas["Aguardando revisão cega"] == "0"
     assert metricas["Confirmadas contra a IA"] == "1"
+    assert metricas["Taxa de convergência contra a IA"] == "100%"
+    assert metricas["Concordância entre analistas"] == "100%"
     assert len(tela.radio) == 0
+
+
+def test_revisor_com_outro_valor_abre_divergencia_entre_analistas(tela):
+    tela.sidebar.text_input[0].set_value("ANL-01")
+    _clicar(tela, "Analisar projeto")
+    _decidir(tela)
+    _decidir(tela, "Alterar", MOTIVO)        # novidade: primeira opção da lista no lugar da proposta
+
+    _abrir_revisao(tela, "ANL-02")
+    assert {m.label: m.value for m in tela.metric}["Taxa de convergência contra a IA"] == "0%"
+    # A lista nao traz a proposta da IA nem destaca a escolha do primeiro analista.
+    valor = next(s for s in tela.selectbox if s.label.startswith("Valor que você daria"))
+    assert valor.value is None
+    assert "NÃO DEMONSTRADA" not in valor.options
+    tela.radio[0].set_value("Discordo da proposta da IA")
+    valor.set_value("INDETERMINADA")
+    tela.text_area[0].set_value(MOTIVO)
+    _clicar(tela, "Registrar revisão")
+
+    metricas = {m.label: m.value for m in tela.metric}
+    assert metricas["Divergência entre analistas"] == "1"
+    assert metricas["Confirmadas contra a IA"] == "0"
+    assert metricas["Concordância entre analistas"] == "0%"
