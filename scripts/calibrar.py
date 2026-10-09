@@ -96,11 +96,18 @@ def main() -> int:
         print(f"{len(ids) - len(rodada)} projeto(s) ficam fora desta rodada: já avaliados ou além do limite.")
     if rodada:
         try:
-            papeis = papeis_padrao()
+            # Em lote, com todos os modelos sem cota, espera a cota voltar antes de desistir.
+            papeis = papeis_padrao(rodadas_de_espera=3)
         except ErroLLM as erro:
             print(erro)
             return 1
     por_rotulo = {rotulo: criterio for criterio, rotulo in ROTULO_CRITERIO.items()}
+
+    def salvar() -> None:
+        # A cada projeto: uma rodada interrompida nao perde o que ja foi avaliado.
+        linhas = [resultados[i] for i in sorted(resultados)]
+        opcoes.saida.parent.mkdir(parents=True, exist_ok=True)
+        opcoes.saida.write_text(json.dumps(linhas, ensure_ascii=False, indent=2), encoding="utf-8")
 
     for projeto_id in rodada:
         parecer = historicos[projeto_id]
@@ -113,6 +120,7 @@ def main() -> int:
         except ErroLLM as erro:
             print(f"{projeto_id}: ERRO {erro}")
             resultados[projeto_id] = {"projeto_id": projeto_id, "erro": str(erro)}
+            salvar()
             continue
         criterios_iguais = sum(
             analise.proposta.criterio(por_rotulo[c.criterio]).estado == c.estado
@@ -130,9 +138,15 @@ def main() -> int:
             "divergencias_encontradas": len(analise.proposta.divergencias),
             "fontes_descartadas": sum(len(f) for f in analise.fontes_descartadas.values()),
             "modelo": analise.modelo,
+            "modelos_por_papel": {
+                p.papel: f"{p.provedor} ({p.modelo})"
+                for p in analise.orquestracao.papeis
+                if p.concluido
+            },
             "prompt": analise.versao_prompt,
         }
         resultados[projeto_id] = linha
+        salvar()
         print(
             f"{projeto_id}: {'OK ' if linha['acertou'] else 'ERRO'} "
             f"referência={linha['referencia']} | derivada={linha['derivada']} | "
@@ -152,8 +166,7 @@ def main() -> int:
         f"{len(historicos)} históricos avaliados."
         + (f" Faltam: {', '.join(faltam)}." if faltam else "")
     )
-    opcoes.saida.parent.mkdir(parents=True, exist_ok=True)
-    opcoes.saida.write_text(json.dumps(linhas, ensure_ascii=False, indent=2), encoding="utf-8")
+    salvar()
     print(f"Detalhe salvo em {opcoes.saida} ({len(linhas)} projeto(s)).")
     return 0
 

@@ -7,6 +7,7 @@ from src.llm import cliente as llm
 from src.llm.cliente import ErroLLM, LimiteDeUso, RespostaLLM
 from src.motor import orquestrador
 from src.motor.fluxo import criar_pontos
+from src.motor.analisador import preparar_analise
 from src.motor.orquestrador import (
     Papeis,
     analisar_com_orquestracao,
@@ -272,3 +273,57 @@ def test_sem_nenhuma_chave_o_erro_diz_o_que_preencher(monkeypatch):
 def test_mensagem_de_confronto_sem_entrevista_avisa(corpus):
     assert "# ENTREVISTA (depoimento de memória)\n\nNão entregue." in mensagem_de_confronto(corpus)
     assert orquestrador.PREFERENCIAS["analista"][0] == "gemini"
+
+
+def test_cada_papel_tem_os_outros_provedores_como_reserva(monkeypatch):
+    for provedor in llm.PROVEDORES.values():
+        monkeypatch.setenv(provedor.variavel_chave, "k")
+        monkeypatch.setenv(provedor.variavel_modelo, f"{provedor.nome}-m")
+    papeis = papeis_padrao()
+    filas = {
+        papel: [c.provedor for c in getattr(papeis, papel)._clientes]
+        for papel in ("analista", "confronto", "auditor")
+    }
+    assert filas == {
+        "analista": ["gemini", "openrouter", "groq"],
+        "confronto": ["groq", "openrouter", "gemini"],
+        "auditor": ["openrouter", "groq", "gemini"],
+    }
+
+
+def test_analista_sem_cota_e_substituido_e_o_analista_humano_e_avisado(corpus):
+    gemini = Modelo("gemini", llm.LimiteDeUso("429"))
+    reserva = Modelo("openrouter", proposta())
+    fila = llm.ClienteComReserva([gemini, reserva], fora_da_fila={})
+    analise = analisar_com_orquestracao(corpus.projeto, Papeis(analista=fila), corpus)
+
+    (papel,) = analise.orquestracao.papeis
+    assert (papel.papel, papel.provedor, papel.concluido) == ("analista", "openrouter", True)
+    assert analise.modelo == "openrouter/falso"
+    assert (
+        "Papel de analista: gemini (gemini/falso) está sem cota. "
+        "Quem respondeu: openrouter (openrouter/falso)."
+    ) in analise.avisos
+
+
+def test_modelo_com_limite_de_tamanho_faz_o_papel_de_analista_com_mensagem_reduzida(corpus):
+    pacote = PRJ99.parents[2]
+    inteira = preparar_analise(corpus.projeto, corpus, pacote)
+    reduzida = preparar_analise(corpus.projeto, corpus, pacote, reduzida=True)
+    limite = len(reduzida["sistema"]) + len(reduzida["mensagem"]) + 10
+    assert len(inteira["mensagem"]) > len(reduzida["mensagem"]) + 10
+
+    class Pequeno(Modelo):
+        limite_caracteres = limite
+
+    groq = Pequeno("groq", proposta())
+    fila = llm.ClienteComReserva([Modelo("gemini", llm.LimiteDeUso("429")), groq], fora_da_fila={})
+    analise = analisar_com_orquestracao(corpus.projeto, Papeis(analista=fila), corpus, pacote)
+
+    sistema, mensagem = groq.chamadas[0]
+    assert len(sistema) + len(mensagem) <= limite
+    assert "Nenhum trecho disponível neste ambiente." in mensagem      # sem orientações nem exemplos
+    assert "evidencias/metodo.md#1" in mensagem                         # evidência obrigatória continua
+    assert analise.orquestracao.papeis[0].provedor == "groq"
+    assert analise.orientacoes == [] and analise.exemplos == []
+    assert any("recebeu a mensagem reduzida" in a for a in analise.avisos)

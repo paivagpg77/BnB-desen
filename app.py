@@ -18,6 +18,7 @@ import streamlit as st
 from pydantic import ValidationError
 
 from src import apresentacao, ferramentas
+from src.config import carregar_env
 from src.decisoes import discordancias
 from src.decisoes.maquina_estados import (
     DecisaoInvalida,
@@ -42,7 +43,7 @@ from src.motor.fluxo import (
 from src.motor.linguagem import frase_da_decisao
 from src.motor.regras import CLASSIFICACOES, ESTADOS, Criterio
 from src.motor.schemas import AnaliseConferida
-from src.pacote.carregador import PacoteInvalido
+from src.pacote.carregador import PacoteInvalido, raiz_do_pacote
 from src.schemas.discordancia import StatusDiscordancia, TipoDiscordancia
 
 # LEI_DO_BEM_SAIDA troca a pasta onde ficam as analises, os logs e os dossies.
@@ -102,6 +103,11 @@ def abrir_sessao(projeto_id: str, corpus, analise: AnaliseConferida, nova: bool)
     }
 
 
+def papeis() -> orquestrador.Papeis:
+    # Com a fila toda sem cota, vale esperar uma vez a cota por minuto voltar.
+    return orquestrador.papeis_padrao(rodadas_de_espera=1)
+
+
 def salvar_analise(analise: AnaliseConferida) -> None:
     ANALISES.mkdir(parents=True, exist_ok=True)
     (ANALISES / f"{analise.projeto_id}.json").write_text(
@@ -112,7 +118,7 @@ def salvar_analise(analise: AnaliseConferida) -> None:
 def analisar(projeto_id: str) -> None:
     corpus = ferramentas.corpus_do_projeto(projeto_id)
     analise = orquestrador.analisar_com_orquestracao(
-        corpus.projeto, orquestrador.papeis_padrao(), corpus
+        corpus.projeto, papeis(), corpus
     )
     salvar_analise(analise)
     abrir_sessao(projeto_id, corpus, analise, nova=True)
@@ -132,7 +138,7 @@ def repropor(sessao: dict, ponto: PontoDecisao) -> None:
         propor_classificacao(sessao["pontos"], sessao["analise"])
         return
     nova = orquestrador.analisar_com_orquestracao(
-        sessao["corpus"].projeto, orquestrador.papeis_padrao(), sessao["corpus"]
+        sessao["corpus"].projeto, papeis(), sessao["corpus"]
     )
     sessao["analise"] = nova
     salvar_analise(nova)
@@ -481,6 +487,8 @@ def main() -> None:
     st.title("Lei do Bem · apoio à análise preliminar")
     st.caption("A IA propõe; o analista decide. Nada avança sem a sua confirmação.")
 
+    # Mudanca no .env vale na proxima interacao, sem reiniciar o app.
+    carregar_env(forcar=True)
     try:
         projetos = ferramentas.listar_projetos()
     except PacoteInvalido as erro:
@@ -492,8 +500,8 @@ def main() -> None:
         tela = st.selectbox("Tela", [TELA_ANALISE, TELA_REVISAO])
         projeto_id = st.selectbox("Projeto para análise", [p["projeto_id"] for p in projetos])
         st.caption(
-            f"{len(projetos)} caso(s) para análise. Os projetos históricos já "
-            "classificados servem só de referência para o modelo."
+            f"{len(projetos)} caso(s) para análise no pacote `{raiz_do_pacote().name}`. "
+            "Os projetos históricos já classificados servem só de referência para o modelo."
         )
         if st.button("Analisar projeto", type="primary"):
             try:

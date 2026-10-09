@@ -45,7 +45,7 @@ def pacote_com_historico(tmp_path, monkeypatch):
 
 
 def _rodar(monkeypatch, capsys, saida, cliente, *argumentos):
-    monkeypatch.setattr(calibrar, "papeis_padrao", lambda: orquestrador.Papeis(analista=cliente))
+    monkeypatch.setattr(calibrar, "papeis_padrao", lambda **_: orquestrador.Papeis(analista=cliente))
     monkeypatch.setattr(sys, "argv", ["calibrar.py", "--saida", str(saida), *argumentos])
     assert calibrar.main() == 0
     return capsys.readouterr().out
