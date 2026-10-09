@@ -11,9 +11,13 @@ Uso (transporte stdio):
 
 from __future__ import annotations
 
+from functools import wraps
+
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from src import ferramentas
+from src.pacote.carregador import PacoteInvalido
 
 INSTRUCOES = (
     "Evidências de projetos para análise preliminar de elegibilidade à Lei do Bem. "
@@ -25,6 +29,23 @@ INSTRUCOES = (
 )
 
 servidor = MCPServer("lei-do-bem-analise", instructions=INSTRUCOES)
+
+
+def _com_erro_claro(funcao):
+    """
+    Projeto que nao existe ou pacote mal configurado sao erros de quem consulta:
+    a mensagem chega a ele, em vez do erro generico de falha do servidor.
+    """
+
+    @wraps(funcao)
+    def ferramenta(*argumentos, **nomeados):
+        try:
+            return funcao(*argumentos, **nomeados)
+        except (ferramentas.ProjetoDesconhecido, PacoteInvalido) as erro:
+            raise ToolError(str(erro)) from erro
+
+    return ferramenta
+
 
 for _funcao in (
     ferramentas.listar_projetos,
@@ -38,7 +59,7 @@ for _funcao in (
     ferramentas.buscar_pareceres_historicos,
     ferramentas.parecer_historico,
 ):
-    servidor.tool()(_funcao)
+    servidor.tool()(_com_erro_claro(_funcao))
 
 
 if __name__ == "__main__":

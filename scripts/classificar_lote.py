@@ -30,6 +30,28 @@ from src.motor.orquestrador import analisar_com_orquestracao, papeis_padrao  # n
 from src.motor.schemas import AnaliseConferida  # noqa: E402
 
 PASTA = RAIZ / "saida" / "analises"
+ARQUIVO_LOTE = RAIZ / "saida" / "classificacao_lote.json"
+
+
+def carregar_lote(arquivo: Path) -> dict[str, dict]:
+    """Resumo de cada projeto nas rodadas anteriores."""
+    if not arquivo.is_file():
+        return {}
+    return {l["projeto_id"]: l for l in json.loads(arquivo.read_text(encoding="utf-8"))}
+
+
+def juntar(anteriores: dict[str, dict], linhas: list[dict]) -> list[dict]:
+    """
+    Resumo do lote inteiro: a rodada atualiza os projetos que tocou e mantem os
+    demais. Projeto so relido do disco nao perde o tempo medido na analise.
+    """
+    resultado = dict(anteriores)
+    for linha in linhas:
+        antes = anteriores.get(linha["projeto_id"], {})
+        if linha["segundos"] is None:
+            linha = {**linha, "segundos": antes.get("segundos")}
+        resultado[linha["projeto_id"]] = linha
+    return [resultado[i] for i in sorted(resultado)]
 
 
 def resumo(analise: AnaliseConferida, segundos: float | None) -> dict:
@@ -96,8 +118,9 @@ def main() -> int:
             flush=True,
         )
 
-    (RAIZ / "saida" / "classificacao_lote.json").write_text(
-        json.dumps(linhas, ensure_ascii=False, indent=2), encoding="utf-8"
+    ARQUIVO_LOTE.write_text(
+        json.dumps(juntar(carregar_lote(ARQUIVO_LOTE), linhas), ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
     concordam = sum(l["concordam"] for l in linhas)
     print(f"\n{len(linhas)} de {len(ids)} projeto(s) classificados; modelo e regra concordam em {concordam}.")
