@@ -176,8 +176,56 @@ def test_revisao_e_gravada_sem_reescrever_o_arquivo(analise, tmp_path):
     assert salvo.status == StatusDiscordancia.CONVERGENCIA_CONTRA_IA
     assert discordancias.pendentes_para([salvo], "ANL-03") == []
     assert discordancias.metricas([salvo]) == {
-        "total": 1, "aguardando_revisao": 0, "confirmadas": 1, "nao_confirmadas": 0,
+        "total": 1, "aguardando_revisao": 0, "revisadas": 1, "confirmadas": 1,
+        "nao_confirmadas": 0, "divergentes": 0,
+        "taxa_convergencia": 1.0, "concordancia_entre_analistas": 1.0,
     }
+
+
+def test_revisor_com_outro_valor_vira_divergencia_entre_analistas(analise):
+    # O primeiro analista deu INDETERMINADA; o segundo tambem discorda da IA, com outro valor.
+    divergente = discordancias.revisar(
+        _discordancia(analise, "PRJ21"), "ANL-02", False, MOTIVO, "DEMONSTRADA NO RECORTE"
+    )
+    assert divergente.status == StatusDiscordancia.DIVERGENCIA_ENTRE_ANALISTAS
+    assert divergente.revisao.valor == "DEMONSTRADA NO RECORTE"
+    # Divergencia nao e precedente nem conta para o padrao do curador.
+    assert discordancias.precedentes_do_criterio([divergente], "novidade", "PRJ99") == []
+
+    mesmo_valor = discordancias.revisar(
+        _discordancia(analise, "PRJ22"), "ANL-02", False, MOTIVO, "INDETERMINADA"
+    )
+    sem_valor = discordancias.revisar(_discordancia(analise, "PRJ23"), "ANL-02", False, MOTIVO)
+    assert mesmo_valor.status == sem_valor.status == StatusDiscordancia.CONVERGENCIA_CONTRA_IA
+
+
+def test_valor_do_revisor_que_concorda_com_a_ia_e_ignorado(analise):
+    registro = discordancias.revisar(
+        _discordancia(analise), "ANL-02", True, MOTIVO, "DEMONSTRADA NO RECORTE"
+    )
+    assert registro.status == StatusDiscordancia.NAO_CONFIRMADA
+    assert registro.revisao.valor is None
+
+
+def test_metricas_trazem_as_taxas_de_convergencia_e_de_concordancia(analise):
+    vazias = discordancias.metricas([])
+    assert vazias["taxa_convergencia"] is None
+    assert vazias["concordancia_entre_analistas"] is None
+
+    registros = [
+        discordancias.revisar(_discordancia(analise, "PRJ21"), "ANL-02", False, MOTIVO),
+        discordancias.revisar(_discordancia(analise, "PRJ22"), "ANL-02", True, MOTIVO),
+        discordancias.revisar(
+            _discordancia(analise, "PRJ23"), "ANL-02", False, MOTIVO, "DEMONSTRADA NO RECORTE"
+        ),
+        _discordancia(analise, "PRJ24"),
+    ]
+    numeros = discordancias.metricas(registros)
+    assert (numeros["total"], numeros["revisadas"], numeros["aguardando_revisao"]) == (4, 3, 1)
+    assert (numeros["confirmadas"], numeros["nao_confirmadas"], numeros["divergentes"]) == (1, 1, 1)
+    # Pendente entra no total, nao nas revisadas.
+    assert numeros["taxa_convergencia"] == 1 / 4
+    assert numeros["concordancia_entre_analistas"] == 1 / 3
 
 
 def test_precedente_so_de_discordancia_confirmada_em_outro_projeto(analise):

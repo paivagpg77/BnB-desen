@@ -270,18 +270,38 @@ def formulario_revisao(registro, analista: str) -> None:
     mostrar_parecer(ponto)
     mostrar_fontes({"corpus": ferramentas.corpus_do_projeto(registro.projeto_id)}, ponto.justificativa)
     concordo = "Concordo com a proposta da IA"
+    # Todas as opcoes do ponto menos a da IA: a lista nao revela a escolha do primeiro analista.
+    opcoes = [o for o in opcoes_de_valor(ponto) or [] if o != ponto.valor_proposto]
     with st.form(f"revisao-{registro.discordancia_id}"):
         conclusao = st.radio("Sua conclusão", [concordo, "Discordo da proposta da IA"], horizontal=True)
+        valor = None
+        if opcoes:
+            valor = st.selectbox(
+                "Valor que você daria, se discordar (opcional)",
+                opcoes,
+                index=None,
+                placeholder="Sem outro valor",
+            )
         motivo = st.text_area("Motivo (obrigatório, mínimo de 20 caracteres)")
         if not st.form_submit_button("Registrar revisão"):
             return
     try:
-        discordancias.revisar(registro, analista, conclusao == concordo, motivo)
+        discordancias.revisar(registro, analista, conclusao == concordo, motivo, valor)
     except ValidationError:
         st.error("O motivo precisa ter pelo menos 20 caracteres.")
         return
     repositorio().salvar(registro)
     st.rerun()
+
+
+def percentual(valor: float | None) -> str:
+    return "—" if valor is None else f"{valor:.0%}"
+
+
+def segundo_analista(registro) -> str:
+    if registro.status == StatusDiscordancia.NAO_CONFIRMADA:
+        return "concordou com a IA"
+    return registro.revisao.valor or "discordou da IA"
 
 
 def tela_revisao(analista: str) -> None:
@@ -293,6 +313,10 @@ def tela_revisao(analista: str) -> None:
     colunas[1].metric("Aguardando revisão cega", numeros["aguardando_revisao"])
     colunas[2].metric("Confirmadas contra a IA", numeros["confirmadas"])
     colunas[3].metric("Não confirmadas", numeros["nao_confirmadas"])
+    colunas = st.columns(4)
+    colunas[0].metric("Divergência entre analistas", numeros["divergentes"])
+    colunas[1].metric("Taxa de convergência contra a IA", percentual(numeros["taxa_convergencia"]))
+    colunas[2].metric("Concordância entre analistas", percentual(numeros["concordancia_entre_analistas"]))
 
     for criterio, tipo, projetos in discordancias.padroes_candidatos(registros):
         st.warning(
@@ -327,6 +351,7 @@ def tela_revisao(analista: str) -> None:
                     "Tipo": discordancias.ROTULO_TIPO[r.tipo],
                     "Proposta da IA": r.valor_ia,
                     "Primeiro analista": r.valor_analista or "rejeitou a proposta",
+                    "Segundo analista": segundo_analista(r),
                     "Resultado": discordancias.ROTULO_STATUS[r.status],
                 }
                 for r in revistas

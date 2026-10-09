@@ -54,6 +54,9 @@ class RevisaoCega(BaseModel):
 
     analista_pseudonimo: str = Field(min_length=3)
     decisao: ResultadoAnalista
+    # Valor que o revisor daria ao ponto, quando discorda da IA e o ponto tem
+    # vocabulario fechado. Separa convergencia de divergencia entre analistas.
+    valor: Optional[str] = None
     motivo: str = Field(min_length=MOTIVO_MIN_CARACTERES)
     registrada_em: datetime
 
@@ -99,7 +102,11 @@ class RegistroDiscordancia(BaseModel):
         self.revisao = revisao
 
         if revisao.decisao == ResultadoAnalista.DISCORDA_IA:
-            self.status = StatusDiscordancia.CONVERGENCIA_CONTRA_IA
+            if revisao.valor and self.valor_analista and revisao.valor != self.valor_analista:
+                # Os dois discordam da IA, mas nao entre si: vai ao responsavel da equipe.
+                self.status = StatusDiscordancia.DIVERGENCIA_ENTRE_ANALISTAS
+            else:
+                self.status = StatusDiscordancia.CONVERGENCIA_CONTRA_IA
         else:
             # Segundo analista concordou com a IA: discordancia nao confirmada.
             self.status = StatusDiscordancia.NAO_CONFIRMADA

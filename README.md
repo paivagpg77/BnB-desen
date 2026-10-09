@@ -92,7 +92,10 @@ Alterar ou rejeitar uma proposta abre uma discordância, com o tipo e o motivo
 informados pelo analista. Na tela "Discordâncias e revisão cega" (seletor na
 barra lateral), um segundo analista vê a proposta da IA e as fontes, sem a
 decisão do primeiro, e diz se concorda com a IA. Quem abriu a discordância não
-a revisa.
+a revisa. Ao discordar, ele pode informar o valor que daria ao ponto: se for
+diferente do valor do primeiro analista, o caso vira divergência entre analistas
+e vai ao responsável da equipe, sem virar precedente. A tela mostra também a
+taxa de convergência contra a IA e a concordância entre analistas.
 
 Discordância confirmada pelos dois vira precedente interno e aparece no cartão
 do mesmo ponto em outros projetos, como contexto. O precedente não altera

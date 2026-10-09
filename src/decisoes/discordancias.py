@@ -17,6 +17,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from src.decisoes.maquina_estados import Ponto, PontoDecisao, Status
 from src.motor.regras import CLASSIFICACOES
@@ -44,7 +45,7 @@ ROTULO_STATUS: dict[StatusDiscordancia, str] = {
     StatusDiscordancia.EM_REVISAO_CEGA: "em revisão cega",
     StatusDiscordancia.CONVERGENCIA_CONTRA_IA: "confirmada pelo segundo analista",
     StatusDiscordancia.NAO_CONFIRMADA: "não confirmada: o segundo analista concordou com a IA",
-    StatusDiscordancia.DIVERGENCIA_ENTRE_ANALISTAS: "divergência entre analistas",
+    StatusDiscordancia.DIVERGENCIA_ENTRE_ANALISTAS: "divergência entre analistas: vai ao responsável da equipe",
     StatusDiscordancia.ENCAMINHADA_CURADOR: "encaminhada ao curador",
 }
 
@@ -87,13 +88,22 @@ def abrir_discordancia(
 
 
 def revisar(
-    registro: RegistroDiscordancia, analista: str, concorda_com_ia: bool, motivo: str
+    registro: RegistroDiscordancia,
+    analista: str,
+    concorda_com_ia: bool,
+    motivo: str,
+    valor: Optional[str] = None,
 ) -> RegistroDiscordancia:
-    """Aplica a decisao do segundo analista. Nao muda a decisao do caso."""
+    """
+    Aplica a decisao do segundo analista. Nao muda a decisao do caso. O valor e
+    o que ele daria ao ponto ao discordar da IA: diferente do valor do primeiro
+    analista, a discordancia vira divergencia entre analistas.
+    """
     return registro.resolver_revisao(
         RevisaoCega(
             analista_pseudonimo=pseudonimo(analista),
             decisao=ResultadoAnalista.ACEITA_IA if concorda_com_ia else ResultadoAnalista.DISCORDA_IA,
+            valor=None if concorda_com_ia else valor,
             motivo=motivo,
             registrada_em=datetime.now(timezone.utc),
         )
@@ -164,15 +174,23 @@ def padroes_candidatos(
     ]
 
 
-def metricas(registros: list[RegistroDiscordancia]) -> dict[str, int]:
+def metricas(registros: list[RegistroDiscordancia]) -> dict:
     def com(status: StatusDiscordancia) -> int:
         return sum(r.status == status for r in registros)
 
+    confirmadas = com(StatusDiscordancia.CONVERGENCIA_CONTRA_IA)
+    revisadas = sum(r.revisao is not None for r in registros)
     return {
         "total": len(registros),
         "aguardando_revisao": com(StatusDiscordancia.REGISTRADA),
-        "confirmadas": com(StatusDiscordancia.CONVERGENCIA_CONTRA_IA),
+        "revisadas": revisadas,
+        "confirmadas": confirmadas,
         "nao_confirmadas": com(StatusDiscordancia.NAO_CONFIRMADA),
+        "divergentes": com(StatusDiscordancia.DIVERGENCIA_ENTRE_ANALISTAS),
+        # Confirmadas contra a IA sobre o total de discordancias. None sem discordancia.
+        "taxa_convergencia": confirmadas / len(registros) if registros else None,
+        # Revisoes cegas em que o segundo analista decidiu como o primeiro.
+        "concordancia_entre_analistas": confirmadas / revisadas if revisadas else None,
     }
 
 
