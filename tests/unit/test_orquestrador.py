@@ -106,6 +106,23 @@ def test_cada_modelo_recebe_so_a_sua_parte(corpus):
     assert analise.classificacao_derivada == NAO_ELEGIVEL
 
 
+def test_auditor_recebe_cada_fonte_citada_inteira_e_uma_vez_so(corpus):
+    openrouter = Modelo("openrouter", AUDITORIA)
+    analise = analisar_com_orquestracao(
+        corpus.projeto,
+        Papeis(analista=Modelo("gemini", analista_sem_listas()), auditor=openrouter),
+        corpus,
+    )
+    do_auditor = openrouter.chamadas[0][1]
+    citadas = {f for c in analise.proposta.criterios for f in c.fontes}
+    assert citadas
+    for fonte in citadas:
+        # Fonte cortada ou omitida faria o auditor acusar falta do que ele nao leu.
+        assert do_auditor.count(f"[{fonte}] (") == 1
+        assert corpus.trechos[fonte].texto in do_auditor
+    assert "texto cortado" not in do_auditor
+
+
 def test_resultado_do_confronto_entra_na_proposta_e_e_conferido(corpus):
     achados = json.loads(json.dumps(CONFRONTO))
     achados["divergencias"].append(

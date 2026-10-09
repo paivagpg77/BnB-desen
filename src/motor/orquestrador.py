@@ -58,8 +58,9 @@ from src.rag.corpus import DEPOIMENTO, CorpusProjeto
 PROMPTS = Path(__file__).resolve().parents[2] / "prompts"
 ARQUIVO_PROMPT_CONFRONTO = PROMPTS / "confronto_depoimento.md"
 ARQUIVO_PROMPT_AUDITORIA = PROMPTS / "auditoria_fontes.md"
-LIMITE_TEXTO_DA_FONTE = 700
-FONTES_POR_CRITERIO = 4
+# Protecao contra um trecho anormalmente longo; os trechos citados ficam bem
+# abaixo disso e chegam inteiros ao auditor.
+LIMITE_TEXTO_DA_FONTE = 4000
 
 # Ordem de preferencia de provedor para cada papel.
 PREFERENCIAS = {
@@ -223,19 +224,25 @@ def confrontar_depoimento(corpus: CorpusProjeto, cliente: ClienteLLM) -> _Confro
 
 
 def mensagem_de_auditoria(analise: AnaliseConferida, corpus: CorpusProjeto) -> str:
+    """Justificativas por criterio e, uma vez so, o texto de cada fonte citada."""
     partes = [f"Projeto {analise.projeto_id}. Audite os cinco critérios abaixo."]
+    citadas: list[str] = []
     for avaliacao in analise.proposta.criterios:
-        fontes = [
-            f"[{i}] ({corpus.natureza.get(i, '')})\n{corpus.trechos[i].texto[:LIMITE_TEXTO_DA_FONTE]}"
-            for i in avaliacao.fontes[:FONTES_POR_CRITERIO]
-            if i in corpus.trechos
-        ]
+        fontes = [i for i in avaliacao.fontes if i in corpus.trechos]
+        citadas += [i for i in fontes if i not in citadas]
         partes.append(
             f"## {avaliacao.criterio.value}\n"
             f"Estado proposto: {avaliacao.estado}\n"
-            f"Justificativa: {avaliacao.justificativa}\n\n"
-            "Fontes citadas:\n" + ("\n\n".join(fontes) or "Nenhuma fonte válida foi citada.")
+            f"Justificativa: {avaliacao.justificativa}\n"
+            "Fontes citadas: " + (", ".join(fontes) or "nenhuma fonte válida foi citada.")
         )
+    textos = []
+    for i in citadas:
+        texto = corpus.trechos[i].texto
+        if len(texto) > LIMITE_TEXTO_DA_FONTE:
+            texto = texto[:LIMITE_TEXTO_DA_FONTE] + "\n[texto cortado neste ponto]"
+        textos.append(f"[{i}] ({corpus.natureza.get(i, '')})\n{texto}")
+    partes.append("# TEXTO DAS FONTES\n\n" + ("\n\n".join(textos) or "Nenhuma."))
     return "\n\n".join(partes)
 
 
