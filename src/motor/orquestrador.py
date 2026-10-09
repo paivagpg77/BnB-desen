@@ -22,6 +22,10 @@ Papeis padrao: Gemini como analista (contexto grande), Groq no confronto
 (entrada curta, resposta rapida) e OpenRouter como auditor. Faltando a chave
 de um provedor, os papeis sao redistribuidos; com um so provedor, o analista
 faz tambem o confronto e nao ha auditoria.
+
+Cada papel tem uma fila: o provedor titular e, atras dele, os outros com chave
+no .env. Se o titular fica sem cota ou recusa a chamada, a mesma pergunta vai
+para o seguinte, e a troca aparece como aviso para o analista.
 """
 
 from __future__ import annotations
@@ -87,12 +91,16 @@ class Papeis:
     auditor: Optional[ClienteLLM] = None
 
 
-def papeis_padrao() -> Papeis:
-    """Distribui os papeis entre os provedores com chave no .env, sem repetir provedor."""
+def papeis_padrao(rodadas_de_espera: int = 0) -> Papeis:
+    """
+    Distribui os papeis entre os provedores com chave no .env, sem repetir o
+    titular. Os demais provedores entram na fila de cada papel como reserva.
+    `rodadas_de_espera` vale para lotes: com todos sem cota, espera a cota voltar.
+    """
     disponiveis = {
-        nome: cliente
+        nome: clientes
         for nome in llm.PROVEDORES
-        if (cliente := llm.cliente_do_provedor(nome)) is not None
+        if (clientes := llm.clientes_do_provedor(nome))
     }
     if not disponiveis:
         raise ErroLLM(
@@ -108,7 +116,9 @@ def papeis_padrao() -> Papeis:
         if nome is None:
             return None
         usados.add(nome)
-        return disponiveis[nome]
+        reservas = [n for n in PREFERENCIAS[papel] if n in disponiveis and n != nome]
+        fila = [cliente for n in [nome] + reservas for cliente in disponiveis[n]]
+        return llm.ClienteComReserva(fila, rodadas_de_espera=rodadas_de_espera)
 
     return Papeis(
         analista=escolher("analista"),
@@ -128,18 +138,31 @@ class _Medidor:
         self.segundos = 0.0
         self.tokens_entrada = 0
         self.tokens_saida = 0
+        # Modelos da fila que deixaram de responder durante este papel.
+        self.trocas: list[str] = []
 
     def completar(self, sistema, usuario, esquema=None):
         inicio = time.perf_counter()
         self.chamadas += 1
+        trocas = getattr(self._cliente, "trocas", [])
+        antes = len(trocas)
         try:
             resposta = self._cliente.completar(sistema, usuario, esquema)
         finally:
             self.segundos += time.perf_counter() - inicio
+            self.trocas += trocas[antes:]
+        self.provedor = resposta.provedor or self.provedor
         self.modelo = resposta.modelo or self.modelo
         self.tokens_entrada += int(resposta.uso.get("prompt_tokens") or 0)
         self.tokens_saida += int(resposta.uso.get("completion_tokens") or 0)
         return resposta
+
+    def aviso_de_troca(self, papel: str) -> list[str]:
+        """Diz ao analista que o papel foi feito por um modelo reserva."""
+        if not self.trocas:
+            return []
+        falhas = "; ".join(dict.fromkeys(self.trocas))
+        return [f"Papel de {papel}: {falhas}. Quem respondeu: {self.provedor} ({self.modelo})."]
 
     def registro(self, papel: str, erro: Optional[Exception] = None) -> PapelExecutado:
         return PapelExecutado(
@@ -292,7 +315,7 @@ def analisar_com_orquestracao(
         raise erro_analista
     proposta, modelo = resultado
     executados = [analista.registro("analista")]
-    avisos: list[str] = []
+    avisos: list[str] = analista.aviso_de_troca("analista")
 
     # Se o modelo de um papel secundario falha, o do outro papel secundario
     # assume a tarefa: sao entradas pequenas, e perder a etapa custa mais.
@@ -310,6 +333,7 @@ def analisar_com_orquestracao(
     if confronto:
         executados.append(confronto.registro("confronto", erro_confronto))
         if achados is not None:
+            avisos += confronto.aviso_de_troca("confronto")
             proposta.divergencias = achados.divergencias
             proposta.atividades = achados.atividades
         else:
@@ -345,6 +369,7 @@ def analisar_com_orquestracao(
                 f"{str(erro_auditor)[:160]} As fontes foram conferidas só quanto à existência."
             )
         else:
+            avisos += auditor.aviso_de_troca("auditor")
             auditoria = resultado
             for item in auditoria:
                 if item.veredito != "sustenta":

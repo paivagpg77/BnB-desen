@@ -38,11 +38,21 @@ def main() -> int:
     ids = [p.upper() for p in opcoes.projetos] if opcoes.projetos else sorted(historicos)
     ids = ids[: opcoes.limite] if opcoes.limite else ids
     try:
-        papeis = papeis_padrao()
+        # Em lote, com todos os modelos sem cota, espera a cota voltar antes de desistir.
+        papeis = papeis_padrao(rodadas_de_espera=3)
     except ErroLLM as erro:
         print(erro)
         return 1
     por_rotulo = {rotulo: criterio for criterio, rotulo in ROTULO_CRITERIO.items()}
+
+    saida = RAIZ / "saida"
+    saida.mkdir(exist_ok=True)
+
+    def salvar() -> None:
+        # A cada projeto: uma rodada interrompida nao perde o que ja foi avaliado.
+        (saida / "calibracao.json").write_text(
+            json.dumps(linhas, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     linhas = []
     for projeto_id in ids:
@@ -56,6 +66,7 @@ def main() -> int:
         except ErroLLM as erro:
             print(f"{projeto_id}: ERRO {erro}")
             linhas.append({"projeto_id": projeto_id, "erro": str(erro)})
+            salvar()
             continue
         criterios_iguais = sum(
             analise.proposta.criterio(por_rotulo[c.criterio]).estado == c.estado
@@ -73,9 +84,15 @@ def main() -> int:
             "divergencias_encontradas": len(analise.proposta.divergencias),
             "fontes_descartadas": sum(len(f) for f in analise.fontes_descartadas.values()),
             "modelo": analise.modelo,
+            "modelos_por_papel": {
+                p.papel: f"{p.provedor} ({p.modelo})"
+                for p in analise.orquestracao.papeis
+                if p.concluido
+            },
             "prompt": analise.versao_prompt,
         }
         linhas.append(linha)
+        salvar()
         print(
             f"{projeto_id}: {'OK ' if linha['acertou'] else 'ERRO'} "
             f"referência={linha['referencia']} | derivada={linha['derivada']} | "
@@ -95,11 +112,7 @@ def main() -> int:
             f"classificação do modelo sozinho: {do_modelo}/{len(avaliados)} | "
             f"critérios: {criterios}/{5 * len(avaliados)}"
         )
-    saida = RAIZ / "saida"
-    saida.mkdir(exist_ok=True)
-    (saida / "calibracao.json").write_text(
-        json.dumps(linhas, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    salvar()
     print(f"Detalhe salvo em saida/calibracao.json ({len(linhas)} projeto(s)).")
     return 0
 
