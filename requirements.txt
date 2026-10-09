@@ -1,0 +1,5 @@
+# Dependencias da interface no Streamlit Community Cloud, nas versoes testadas.
+# O desenvolvimento local continua pelo pyproject.toml: pip install -e ".[dev]".
+streamlit==1.65.0
+pydantic==2.14.0
+pypdf==6.20.0

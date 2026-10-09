@@ -90,6 +90,27 @@ um evento por linha, sem reescrita. "Abrir análise salva" retoma do ponto em qu
 o analista parou. Em um ponto já decidido, "Rever este ponto" reabre esse ponto
 e os que dependem dele.
 
+### Publicar no Streamlit Community Cloud
+
+Serve para demonstração, só com o projeto fictício `PRJ99` que está no
+repositório. A massa do hackathon não pode ir para um app público.
+
+1. Em share.streamlit.io, crie o app a partir deste repositório, branch `main`,
+   arquivo `app.py`, Python 3.12.
+2. Em "Settings > Secrets", cole o conteúdo de `.streamlit/secrets.toml.example`
+   e preencha pelo menos uma chave de modelo. Cada linha vira variável de
+   ambiente, lida como as do `.env`.
+
+As dependências vêm de `requirements.txt`, com as versões testadas. Ao mudar
+uma versão no ambiente local, mude lá também.
+
+Limites dessa publicação:
+
+- Não há login: quem tem o link usa o app e gasta a cota das chaves.
+- O disco do serviço é apagado quando o app reinicia. Análises, log de decisões,
+  discordâncias e dossiês em `saida/` se perdem; baixe o dossiê antes de sair.
+- A busca semântica fica desligada (`sentence-transformers` não é instalado).
+
 ### Discordâncias e revisão cega
 
 Alterar ou rejeitar uma proposta abre uma discordância, com o tipo e o motivo
