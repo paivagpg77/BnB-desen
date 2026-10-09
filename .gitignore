@@ -7,7 +7,5 @@ __pycache__/
 dados/projetos/**/*.real.*
 saida/
 # Massa do hackathon: confidencial, nunca versionar.
-/pacote/
-/HACKATHON STS 2026*/
 *.egg-info/
 *.zip
