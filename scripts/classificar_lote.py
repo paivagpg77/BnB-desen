@@ -59,7 +59,8 @@ def main() -> int:
     todos = [p["projeto_id"] for p in ferramentas.listar_projetos()]
     ids = [p.upper() for p in opcoes.projetos] if opcoes.projetos else todos
     try:
-        papeis = papeis_padrao()
+        # Em lote, com todos os modelos sem cota, espera a cota voltar antes de desistir.
+        papeis = papeis_padrao(rodadas_de_espera=3)
     except ErroLLM as erro:
         print(erro)
         return 1

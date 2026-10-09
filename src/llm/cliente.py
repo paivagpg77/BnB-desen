@@ -16,7 +16,7 @@ import os
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Optional, Protocol
 
 from src.config import carregar_env
@@ -61,6 +61,8 @@ class RespostaLLM:
     modelo: str                 # modelo que de fato respondeu
     uso: dict = field(default_factory=dict)
     provedor: str = ""
+    # O modelo recebeu a versao reduzida da mensagem, por limite de tamanho.
+    mensagem_reduzida: bool = False
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,9 @@ class Provedor:
     variavel_chave: str
     variavel_modelo: str
     modelo_padrao: str
+    # Maior mensagem (sistema + usuario, em caracteres) que a camada gratuita
+    # aceita em uma chamada. None = sem limite pratico para este projeto.
+    limite_caracteres: Optional[int] = None
 
 
 # Os tres provedores tem camada gratuita. Os modelos padrao sao trocaveis pelo
@@ -92,6 +97,8 @@ GROQ = Provedor(
     "GROQ_API_KEY",
     "GROQ_MODEL",
     "openai/gpt-oss-120b",
+    # 8 mil tokens por minuto, somando entrada e resposta.
+    limite_caracteres=22000,
 )
 PROVEDORES = {p.nome: p for p in (OPENROUTER, GEMINI, GROQ)}
 
@@ -144,6 +151,7 @@ class ClienteChat:
                 f"Defina {provedor.variavel_chave} no arquivo .env com a chave do {provedor.nome}."
             )
         self.modelo = modelo or modelos_do_provedor(provedor)[0]
+        self.limite_caracteres = provedor.limite_caracteres
         # O esforco de raciocinio e um parametro do OpenRouter.
         self.raciocinio = ""
         if provedor.nome == OPENROUTER.nome:
@@ -281,12 +289,19 @@ class ClienteComReserva:
         self.modelo = getattr(clientes[0], "modelo", "") or ""
         self.trocas: list[str] = []
 
+    # Aceita uma segunda versao da mensagem, menor, para modelo com limite de tamanho.
+    aceita_reduzida = True
+
     @staticmethod
     def _chave(cliente: ClienteLLM) -> tuple[str, str]:
         return getattr(cliente, "provedor", "") or "", getattr(cliente, "modelo", "") or ""
 
     def completar(
-        self, sistema: str, usuario: str, esquema: Optional[dict] = None
+        self,
+        sistema: str,
+        usuario: str,
+        esquema: Optional[dict] = None,
+        reduzida: Optional[str] = None,
     ) -> RespostaLLM:
         ultimo_erro: Optional[ErroLLM] = None
         for rodada in range(self._rodadas_de_espera + 1):
@@ -295,8 +310,19 @@ class ClienteComReserva:
                 if self._fora.get(chave, 0.0) > self._relogio():
                     continue
                 nome = f"{chave[0]} ({chave[1]})"
+                limite = getattr(cliente, "limite_caracteres", None)
+                mensagem = usuario
+                if limite and len(sistema) + len(usuario) > limite:
+                    if reduzida is None or len(sistema) + len(reduzida) > limite:
+                        self.trocas.append(f"{nome} não aceita mensagem deste tamanho")
+                        ultimo_erro = ultimo_erro or ErroLLM(
+                            f"A mensagem passa do limite de tamanho de {nome}."
+                        )
+                        continue
+                    mensagem = reduzida
                 try:
-                    return cliente.completar(sistema, usuario, esquema)
+                    resposta = cliente.completar(sistema, mensagem, esquema)
+                    return replace(resposta, mensagem_reduzida=mensagem is not usuario)
                 except LimiteDeUso as erro:
                     self._fora[chave] = self._relogio() + ESPERA_APOS_LIMITE_S
                     self.trocas.append(f"{nome} está sem cota")

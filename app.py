@@ -103,6 +103,11 @@ def abrir_sessao(projeto_id: str, corpus, analise: AnaliseConferida, nova: bool)
     }
 
 
+def papeis() -> orquestrador.Papeis:
+    # Com a fila toda sem cota, vale esperar uma vez a cota por minuto voltar.
+    return orquestrador.papeis_padrao(rodadas_de_espera=1)
+
+
 def salvar_analise(analise: AnaliseConferida) -> None:
     ANALISES.mkdir(parents=True, exist_ok=True)
     (ANALISES / f"{analise.projeto_id}.json").write_text(
@@ -113,7 +118,7 @@ def salvar_analise(analise: AnaliseConferida) -> None:
 def analisar(projeto_id: str) -> None:
     corpus = ferramentas.corpus_do_projeto(projeto_id)
     analise = orquestrador.analisar_com_orquestracao(
-        corpus.projeto, orquestrador.papeis_padrao(), corpus
+        corpus.projeto, papeis(), corpus
     )
     salvar_analise(analise)
     abrir_sessao(projeto_id, corpus, analise, nova=True)
@@ -133,7 +138,7 @@ def repropor(sessao: dict, ponto: PontoDecisao) -> None:
         propor_classificacao(sessao["pontos"], sessao["analise"])
         return
     nova = orquestrador.analisar_com_orquestracao(
-        sessao["corpus"].projeto, orquestrador.papeis_padrao(), sessao["corpus"]
+        sessao["corpus"].projeto, papeis(), sessao["corpus"]
     )
     sessao["analise"] = nova
     salvar_analise(nova)

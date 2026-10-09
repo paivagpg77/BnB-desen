@@ -259,3 +259,40 @@ def test_varios_modelos_do_mesmo_provedor_pelo_env(monkeypatch):
     assert [c.modelo for c in clientes_do_provedor("gemini")] == [GEMINI.modelo_padrao]
     monkeypatch.delenv("GEMINI_API_KEY")
     assert clientes_do_provedor("gemini") == []
+
+
+# ----- mensagem reduzida para modelo com limite de tamanho -----
+
+class _Limitado(_Falso):
+    limite_caracteres = 20
+
+    def completar(self, sistema, usuario, esquema=None):
+        self.recebido = usuario
+        return super().completar(sistema, usuario, esquema)
+
+
+def test_modelo_com_limite_recebe_a_mensagem_reduzida():
+    groq = _Limitado("groq", "ok")
+    fila, _ = _fila(_Falso("gemini", LimiteDeUso("429")), groq)
+    resposta = fila.completar("s", "u" * 100, reduzida="curta")
+    assert groq.recebido == "curta"
+    assert resposta.mensagem_reduzida is True
+
+
+def test_mensagem_que_cabe_vai_inteira():
+    groq = _Limitado("groq", "ok")
+    fila, _ = _fila(groq)
+    assert fila.completar("s", "cabe", reduzida="c").mensagem_reduzida is False
+    assert groq.recebido == "cabe"
+
+
+def test_sem_versao_que_caiba_o_modelo_e_pulado_sem_gastar_chamada():
+    groq, gemini = _Limitado("groq", "ok"), _Falso("gemini", "ok")
+    fila, _ = _fila(groq, gemini)
+    assert fila.completar("s", "u" * 100, reduzida="r" * 100).provedor == "gemini"
+    assert groq.chamadas == 0
+    assert fila.trocas == ["groq (groq/modelo) não aceita mensagem deste tamanho"]
+
+    so_groq, _ = _fila(_Limitado("groq", "ok"))
+    with pytest.raises(ErroLLM, match="limite de tamanho"):
+        so_groq.completar("s", "u" * 100)

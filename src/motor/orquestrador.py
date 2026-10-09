@@ -140,17 +140,22 @@ class _Medidor:
         self.tokens_saida = 0
         # Modelos da fila que deixaram de responder durante este papel.
         self.trocas: list[str] = []
+        # A ultima resposta veio da versao reduzida da mensagem.
+        self.reduzida = False
 
-    def completar(self, sistema, usuario, esquema=None):
+    def completar(self, sistema, usuario, esquema=None, reduzida=None):
         inicio = time.perf_counter()
         self.chamadas += 1
         trocas = getattr(self._cliente, "trocas", [])
         antes = len(trocas)
+        # So a fila de modelos sabe escolher entre as duas versoes da mensagem.
+        extra = {"reduzida": reduzida} if getattr(self._cliente, "aceita_reduzida", False) else {}
         try:
-            resposta = self._cliente.completar(sistema, usuario, esquema)
+            resposta = self._cliente.completar(sistema, usuario, esquema, **extra)
         finally:
             self.segundos += time.perf_counter() - inicio
             self.trocas += trocas[antes:]
+        self.reduzida = getattr(resposta, "mensagem_reduzida", False)
         self.provedor = resposta.provedor or self.provedor
         self.modelo = resposta.modelo or self.modelo
         self.tokens_entrada += int(resposta.uso.get("prompt_tokens") or 0)
@@ -296,12 +301,22 @@ def analisar_com_orquestracao(
     analista = _Medidor(papeis.analista)
     confronto = _Medidor(papeis.confronto) if papeis.confronto else None
     auditor = _Medidor(papeis.auditor) if papeis.auditor else None
-    mensagem = preparo["mensagem"] + (DISPENSA_DO_ANALISTA if confronto else "")
+    dispensa = DISPENSA_DO_ANALISTA if confronto else ""
+    mensagem = preparo["mensagem"] + dispensa
+    # Versao menor, para o modelo da fila que nao aceita a mensagem inteira.
+    reduzido = preparar_analise(
+        projeto, corpus, raiz, sem_depoimento=bool(papeis.confronto), reduzida=True
+    )
 
     # Analista e confronto tem entradas independentes e rodam ao mesmo tempo.
     with ThreadPoolExecutor(max_workers=2) as executor:
         tarefa_analista = executor.submit(
-            _tentar, _pedir_proposta, analista, preparo["sistema"], mensagem
+            _tentar,
+            _pedir_proposta,
+            analista,
+            preparo["sistema"],
+            mensagem,
+            reduzido["mensagem"] + dispensa,
         )
         tarefa_confronto = (
             executor.submit(_tentar, confrontar_depoimento, corpus, confronto)
@@ -316,6 +331,15 @@ def analisar_com_orquestracao(
     proposta, modelo = resultado
     executados = [analista.registro("analista")]
     avisos: list[str] = analista.aviso_de_troca("analista")
+    if analista.reduzida:
+        # Vale o que este modelo de fato leu: a conferencia das fontes usa o contexto menor.
+        preparo = reduzido
+        regras = preparo["regras"]
+        avisos.append(
+            f"O modelo analista ({analista.provedor}) tem limite de tamanho e recebeu a "
+            "mensagem reduzida: só as evidências obrigatórias, sem orientações do desafio "
+            "e sem pareceres de exemplo."
+        )
 
     # Se o modelo de um papel secundario falha, o do outro papel secundario
     # assume a tarefa: sao entradas pequenas, e perder a etapa custa mais.
