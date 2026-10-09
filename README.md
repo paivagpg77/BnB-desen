@@ -4,7 +4,7 @@ Ferramenta de apoio ao analista de P&D do Banco do Nordeste (BNB), desenvolvida 
 Hackathon STS 2026. **A IA propõe; o analista decide.**
 
 Base de referência: `docs/base_projeto_v0.2.txt`
-Decisão de stack: `docs/adr/0001-stack.md`
+Decisões de stack: `docs/adr/0001-stack.md` e `docs/adr/0002-interface-streamlit.md`
 
 ## Estado atual (Fase 1, em andamento)
 
@@ -27,9 +27,11 @@ Decisão de stack: `docs/adr/0001-stack.md`
 - [x] Fluxo D1 a D5 ligado ao motor; a classificação é derivada do que o analista confirmou
 - [x] Servidor MCP com as ferramentas de leitura das evidências
 - [x] Interface Streamlit básica, do projeto ao dossiê
+- [x] Log das decisões em disco, somente de anexação: a análise salva volta com as decisões já registradas
+- [x] Rever um ponto já decidido: ele e os pontos que dependem dele voltam a aguardar decisão
+- [x] Discordâncias, revisão cega por um segundo analista e precedentes internos na interface
 - [ ] Calibração contra PRJ01 a PRJ20 (`scripts/calibrar.py`), aguardando chave do modelo
 - [ ] Busca semântica (embeddings): sem prioridade, o contexto por projeto é pequeno
-- [ ] Módulo de discordâncias e revisão cega na interface
 
 Os dados em `dados/fixtures/` são fictícios e servem só para teste. Não são legislação nem projetos reais.
 
@@ -40,6 +42,8 @@ python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest
 ```
+
+No Windows, troque `.venv/bin/` por `.venv\Scripts\` em todos os comandos.
 
 ## Massa do hackathon e modelo de linguagem
 
@@ -57,6 +61,7 @@ cp .env.example .env
 | `GROQ_API_KEY` | Chave do Groq (console.groq.com/keys) |
 | `OPENROUTER_MODEL` | Modelo usado; em branco, vale o gratuito padrão |
 | `LEI_DO_BEM_PACOTE` | Pasta onde o pacote do hackathon foi extraído (a que contém `01_projetos`) |
+| `LEI_DO_BEM_SAIDA` | Pasta das análises, dos logs e dos dossiês; em branco, vale `saida/` |
 
 A massa é confidencial e **não entra no repositório**: extraia o pacote em uma
 pasta fora dele. Sem `LEI_DO_BEM_PACOTE`, os testes de `tests/integracao` são
@@ -74,6 +79,26 @@ pulados. Variável já definida no terminal tem prioridade sobre o `.env`.
 Na interface: informe sua identificação, escolha o projeto e peça a análise.
 Cada ponto (D1, os cinco critérios, D3, D4 e D5) mostra a proposta, as fontes e
 espera a sua decisão. O dossiê sai em `saida/` quando todos estão decididos.
+
+Cada proposta, decisão e reabertura é gravada em `saida/decisoes/<projeto>.jsonl`,
+um evento por linha, sem reescrita. "Abrir análise salva" retoma do ponto em que
+o analista parou. Em um ponto já decidido, "Rever este ponto" reabre esse ponto
+e os que dependem dele.
+
+### Discordâncias e revisão cega
+
+Alterar ou rejeitar uma proposta abre uma discordância, com o tipo e o motivo
+informados pelo analista. Na tela "Discordâncias e revisão cega" (seletor na
+barra lateral), um segundo analista vê a proposta da IA e as fontes, sem a
+decisão do primeiro, e diz se concorda com a IA. Quem abriu a discordância não
+a revisa.
+
+Discordância confirmada pelos dois vira precedente interno e aparece no cartão
+do mesmo ponto em outros projetos, como contexto. O precedente não altera
+proposta, estado nem classificação e não é fundamento legal. Com o mesmo ponto
+e o mesmo tipo confirmados em três projetos, a tela avisa que o padrão deve ir
+ao curador normativo; nenhuma regra ou prompt muda sozinho. Os analistas
+aparecem por pseudônimo em `saida/discordancias.jsonl`.
 
 ### Três modelos, um papel cada
 
@@ -108,6 +133,8 @@ Ferramentas do servidor MCP, todas somente de leitura: `listar_projetos`,
 ```
 src/
   decisoes/maquina_estados.py   # estados, transicoes, dependencias, log
+  decisoes/registro.py          # log das decisoes em disco e retomada da analise
+  decisoes/discordancias.py     # discordancias, revisao cega, precedentes e padroes candidatos
   schemas/discordancia.py       # discordancias, revisao cega, precedentes
   pacote/                       # carregador do pacote do desafio e pareceres historicos
   verificacao/recalculo.py      # resultados.csv conferido contra medicoes.csv

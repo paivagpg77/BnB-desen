@@ -71,8 +71,13 @@ class RegistroDiscordancia(BaseModel):
 
     analista_origem_pseudonimo: str = Field(min_length=3)
     motivo: str = Field(min_length=MOTIVO_MIN_CARACTERES)
-    classificacao_ia: ClassificacaoPreliminar
-    classificacao_analista: ClassificacaoPreliminar
+    # Valor do ponto em disputa: estado do criterio, classe ou texto livre.
+    # O analista que rejeita a proposta nao informa valor.
+    valor_ia: Optional[str] = None
+    valor_analista: Optional[str] = None
+    # Preenchidas so quando o ponto e a classificacao final (D5).
+    classificacao_ia: Optional[ClassificacaoPreliminar] = None
+    classificacao_analista: Optional[ClassificacaoPreliminar] = None
     registrada_em: datetime
 
     revisao: Optional[RevisaoCega] = None
@@ -114,7 +119,8 @@ class PrecedenteInterno(BaseModel):
     criterio: str
     tipo: TipoDiscordancia
     motivo_resumido: str = Field(max_length=300)
-    classificacao_resultante: ClassificacaoPreliminar
+    valor_resultante: Optional[str] = None
+    classificacao_resultante: Optional[ClassificacaoPreliminar] = None
     data: datetime
     natureza: str = Field(default="interno_nao_normativo", frozen=True)
 
@@ -142,7 +148,6 @@ def e_padrao_candidato(registros: list[RegistroDiscordancia]) -> bool:
     """
     convergentes = [
         r for r in registros
-        if r.status == StatusDiscordancia.CONVERGENCIA_CONTRA_IA
-    ]
+        if r.status == StatusDiscordancia.CONVERGENCIA_CONTRA_IA    ]
     projetos_distintos = {r.projeto_id for r in convergentes}
     return len(projetos_distintos) >= LIMIAR_PADRAO_CANDIDATO

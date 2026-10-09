@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Callable, Optional
 
 
 MOTIVO_MIN_CARACTERES = 20
@@ -101,6 +101,8 @@ class PontoDecisao:
     # Quem tomou a ultima decisao do analista (aceita, alterada ou rejeitada).
     analista: Optional[str] = None
     eventos: list[dict] = field(default_factory=list)
+    # Chamado a cada evento, para quem grava o log em disco.
+    ao_registrar: Optional[Callable[[dict], None]] = field(default=None, repr=False, compare=False)
 
     @property
     def decision_id(self) -> str:
@@ -208,15 +210,19 @@ class PontoDecisao:
 
     def _registrar(self, evento: str, **dados) -> None:
         # Log somente de anexacao: nada deste historico e editado ou apagado.
-        self.eventos.append(
-            {
-                "evento": evento,
-                "decision_id": self.decision_id,
-                "status": self.status.value,
-                "ts": _agora(),
-                **dados,
-            }
-        )
+        registro = {
+            "evento": evento,
+            "decision_id": self.decision_id,
+            "projeto_id": self.projeto_id,
+            "ponto": self.ponto.value,
+            "criterio": self.criterio,
+            "status": self.status.value,
+            "ts": _agora(),
+            **dados,
+        }
+        self.eventos.append(registro)
+        if self.ao_registrar:
+            self.ao_registrar(registro)
 
 
 # ----- regras sobre o conjunto de pontos de um projeto -----
